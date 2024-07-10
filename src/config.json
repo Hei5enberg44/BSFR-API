@@ -1,0 +1,33 @@
+{
+    "app": {
+        "port": 3030
+    },
+    "jwt": {
+        "secret": ""
+    },
+    "discord": {
+        "guild_id": "",
+        "client_id": "",
+        "client_secret": "",
+        "redirect_uri": "",
+        "webhook_voterun": "",
+        "bot_token": "",
+        "invitation_url": "",
+        "roles": {
+            "Admin": "",
+            "Modérateur": "",
+            "everyone": ""
+        },
+        "channels": {
+            "logs": "",
+            "rankedland": ""
+        }
+    },
+    "nextcloud": {
+        "osc": {
+            "share": ""
+        },
+        "username": "",
+        "password": ""
+    }
+}

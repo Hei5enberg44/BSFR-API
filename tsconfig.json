@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+      "module": "NodeNext",
+      "target": "ESNext",
+      "moduleResolution": "NodeNext",
+      "noImplicitAny": true,
+      "removeComments": true,
+      "preserveConstEnums": true,
+      "sourceMap": false,
+      "noEmitOnError": true,
+      "outDir": "dist",
+      "resolveJsonModule": true,
+      "strict": true
+    },
+    "include": ["src/**/*"]
+}
