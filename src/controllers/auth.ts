@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import { RESTPostOAuth2AccessTokenResult } from 'discord-api-types/v10'
 
 import { DiscordClient, DiscordClientError } from './discord.js'
-import { WS_UserModel } from '../models/website.model.js'
+import { WS_SessionModel } from '../models/website.model.js'
 
 import Logger from '../utils/logger.js'
 import config from '../config.json' assert { type: 'json' }
@@ -97,8 +97,7 @@ export class Auth {
             const userToken = await this.setToken(token)
             const tokenExpire = Math.floor(Date.now() / 1000) + token.expires_in - 300
 
-            await WS_UserModel.create({
-                userId: currentUser.id,
+            await WS_SessionModel.create({
                 sessionId,
                 token: userToken,
                 expire: new Date(tokenExpire * 1000)
@@ -114,23 +113,23 @@ export class Auth {
     }
 
     public static async check(sessionId: string) {
-        const user = await WS_UserModel.findOne({
+        const session = await WS_SessionModel.findOne({
             where: {
                 sessionId
             }
         })
 
-        if(!user || !user.sessionId) {
+        if(!session || !session.sessionId) {
             Logger.log('Auth', 'ERROR', 'Identifiant de session invalide')
             throw new AuthSessionNotFoundError()
         }
 
-        if(!user.token) {
-            Logger.log('Auth', 'ERROR', `Le token pour l'utilisateur ${user.userId} n'existe pas`)
+        if(!session.token) {
+            Logger.log('Auth', 'ERROR', `Token de session invalide`)
             throw new AuthTokenNotFoundError()
         }
 
-        const decodedToken = await this.decodeToken(user.token)
+        const decodedToken = await this.decodeToken(session.token)
 
         return decodedToken
     }

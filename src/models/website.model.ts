@@ -43,23 +43,18 @@ const WS_RunModel = sequelizeWebsite.define<WS_RunModel>('runs', {
     status: DataTypes.INTEGER()
 })
 
-interface WS_UserModel extends Model<InferAttributes<WS_UserModel>, InferCreationAttributes<WS_UserModel>> {
+interface WS_SessionModel extends Model<InferAttributes<WS_SessionModel>, InferCreationAttributes<WS_SessionModel>> {
     id: CreationOptional<number>,
-    userId: string,
     sessionId: string,
     token: string,
     expire: Date
 }
 
-const WS_UserModel = sequelizeWebsite.define<WS_UserModel>('users', {
+const WS_SessionModel = sequelizeWebsite.define<WS_SessionModel>('sessions', {
     id: {
         type: DataTypes.INTEGER(),
         autoIncrement: true,
         primaryKey: true
-    },
-    userId: {
-        type: DataTypes.STRING(255),
-        unique: true
     },
     sessionId: {
         type: DataTypes.STRING(255),
@@ -70,5 +65,5 @@ const WS_UserModel = sequelizeWebsite.define<WS_UserModel>('users', {
 })
 
 export {
-    WS_RunModel, WS_UserModel
+    WS_RunModel, WS_SessionModel
 }
