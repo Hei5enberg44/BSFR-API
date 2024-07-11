@@ -7,6 +7,7 @@ import config from './config.json' assert { type: 'json' }
 
 // Routes
 import discordRoutes from './routes/discord.js'
+import youtubeRoutes from './routes/youtube.js'
 
 const app = Fastify()
 
@@ -26,6 +27,7 @@ app.register(cookie)
 
 // Routes registrations
 app.register(discordRoutes, { prefix: '/discord' })
+app.register(youtubeRoutes, { prefix: '/youtube' })
 
 
 app.listen({ port: config.app.port }, (err, address) => {

@@ -1,6 +1,8 @@
 import { REST, DiscordAPIError, RateLimitError } from '@discordjs/rest'
 import { Routes, CDNRoutes, APIUser, RESTPostOAuth2AccessTokenResult, ImageFormat, DefaultUserAvatarAssets } from 'discord-api-types/v10'
 
+import { Cache } from './cache.js'
+
 import Logger from '../utils/logger.js'
 import config from '../config.json' assert { type: 'json' }
 
@@ -62,6 +64,7 @@ export class DiscordClient {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 }
             }) as RESTPostOAuth2AccessTokenResult
+            console.log(token.access_token)
             return token
         } catch(error) {
             if(error instanceof DiscordAPIError) {
@@ -79,6 +82,9 @@ export class DiscordClient {
     }
 
     public static async getCurrentUser(token: RESTPostOAuth2AccessTokenResult): Promise<APIUser> {
+        const cachedUser = Cache.getUser(token.access_token)
+        if(cachedUser) return cachedUser
+
         try {
             const rest = new REST().setToken(token.access_token)
             const user = await rest.get(Routes.user('@me'), {
@@ -87,7 +93,7 @@ export class DiscordClient {
                     'Authorization': token.access_token
                 }
             }) as APIUser
-            return user
+            return Cache.setUser(token.access_token, user)
         } catch(error) {
             if(error instanceof DiscordAPIError) {
                 Logger.log('Discord', 'ERROR', `${error.message}`)

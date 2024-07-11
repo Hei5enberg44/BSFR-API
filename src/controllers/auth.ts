@@ -1,9 +1,9 @@
-import jwt, { JwtPayload } from 'jsonwebtoken'
+import jwt from 'jsonwebtoken'
 import crypto from 'node:crypto'
-import { PrismaClient } from '@prisma/client'
 import { RESTPostOAuth2AccessTokenResult } from 'discord-api-types/v10'
 
 import { DiscordClient, DiscordClientError } from './discord.js'
+import { WS_UserModel } from '../models/website.model.js'
 
 import Logger from '../utils/logger.js'
 import config from '../config.json' assert { type: 'json' }
@@ -53,24 +53,18 @@ export class AuthVerifyTokenError extends Error {
     }
 }
 
-const prisma = new PrismaClient()
-
 export class Auth {
     private static async setToken(token: RESTPostOAuth2AccessTokenResult): Promise<string> {
         try {
             const t = await new Promise((res, rej) => {
-                jwt.sign({
-                    ...token,
-                    expiration_date: Math.floor(Date.now() / 1000) + token.expires_in - 60
-                }, config.jwt.secret, {
-                    algorithm: 'HS256'
-                }, (err, token) => {
-                    if(err) rej(err)
-                    if(typeof token === 'undefined')
-                        rej('Échec de création du JWT')
-                    else
-                        res(token as string)
-                })
+                jwt.sign(token, config.jwt.secret, { algorithm: 'HS256' },
+                    (err, token) => {
+                        if(err) rej(err)
+                        if(typeof token === 'undefined')
+                            rej('Échec de création du JWT')
+                        else
+                            res(token as string)
+                    })
             }) as string
             return t
         } catch(error) {
@@ -98,72 +92,45 @@ export class Auth {
     public static async register(token: RESTPostOAuth2AccessTokenResult): Promise<string> {
         try {
             const currentUser = await DiscordClient.getCurrentUser(token)
-        
-            const user = await prisma.users.findFirst({
-                where: {
-                    userId: currentUser.id
-                }
+
+            const sessionId = crypto.randomUUID()
+            const userToken = await this.setToken(token)
+            const tokenExpire = Math.floor(Date.now() / 1000) + token.expires_in - 300
+
+            await WS_UserModel.create({
+                userId: currentUser.id,
+                sessionId,
+                token: userToken,
+                expire: new Date(tokenExpire * 1000)
             })
 
-            if(!user) {
-                // Création du JWT de l'utilisateur
-                const t = await this.setToken(token)
-                await prisma.tokens.deleteMany({
-                    where: {
-                        userId: currentUser.id
-                    }
-                })
-                await prisma.tokens.create({
-                    data: {
-                        userId: currentUser.id,
-                        token: t
-                    }
-                })
-
-                // Création de l'utilisateur
-                const sessionId = crypto.randomUUID()
-                await prisma.users.create({
-                    data: {
-                        userId: currentUser.id,
-                        sessionId
-                    }
-                })
-                Logger.log('Auth', 'INFO', `Nouvel utilisateur enregistré: ${currentUser.username}`)
-                return sessionId
-            }
-
-            return user.sessionId
+            Logger.log('Auth', 'INFO', `L'utilisateur ${currentUser.username} s'est connecté`)
+            return sessionId
         } catch(error) {
             if(!(error instanceof DiscordClientError))
                 Logger.log('Auth', 'ERROR', (error as Error).message)
-            throw new AuthError('Authentication impossible')
+            throw new AuthError('Authentification impossible')
         }
     }
 
     public static async check(sessionId: string) {
-        const user = await prisma.users.findFirst({
+        const user = await WS_UserModel.findOne({
             where: {
                 sessionId
             }
         })
 
-        if(!user) {
+        if(!user || !user.sessionId) {
             Logger.log('Auth', 'ERROR', 'Identifiant de session invalide')
             throw new AuthSessionNotFoundError()
         }
 
-        const userToken = await prisma.tokens.findFirst({
-            where: {
-                userId: user.userId
-            }
-        })
-
-        if(!userToken) {
+        if(!user.token) {
             Logger.log('Auth', 'ERROR', `Le token pour l'utilisateur ${user.userId} n'existe pas`)
             throw new AuthTokenNotFoundError()
         }
 
-        const decodedToken = await this.decodeToken(userToken.token)
+        const decodedToken = await this.decodeToken(user.token)
 
         return decodedToken
     }

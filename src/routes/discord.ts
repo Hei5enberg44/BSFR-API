@@ -50,8 +50,7 @@ export default async (app: FastifyInstance) => {
                 const sessionId = await Auth.register(token)
                 res.send({ sessionId })
             } catch(error) {
-                const message = (error as Error).message
-                res.status(500).send({ error: message })
+                res.status(500).send({ error: 'La connexion à Discord a échouée' })
             }
         }
     })
@@ -67,10 +66,9 @@ export default async (app: FastifyInstance) => {
             res.send(appUser)
         } catch(error) {
             if(error instanceof AuthSessionNotFoundError || error instanceof AuthTokenNotFoundError || error instanceof AuthVerifyTokenError) {
-                res.status(401).send({ error: 'Session invalide' })
+                res.status(401).send({ error: 'Session utilisateur invalide' })
             } else {
-                const message = (error as Error).message
-                res.status(500).send({ error: message })
+                res.status(500).send({ error: 'Impossible de récupérer les informations de l\'utilisateur' })
             }
         }
     })
