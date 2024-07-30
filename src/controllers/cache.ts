@@ -1,5 +1,5 @@
 import NodeCache from 'node-cache'
-import { APIUser } from 'discord-api-types/v10'
+import { APIUser, APIGuildMember } from 'discord-api-types/v10'
 
 const cache = new NodeCache({ stdTTL: 300 })
 
@@ -12,6 +12,15 @@ export class Cache {
     public static setUser(accessToken: string, user: APIUser): APIUser {
         cache.set(`user_${accessToken}`, user)
         return user
+    }
+
+    public static getMember(userId: string): APIGuildMember | undefined {
+        return cache.get(`member_${userId}`)
+    }
+
+    public static setMember(userId: string, member: APIGuildMember): APIGuildMember {
+        cache.set(`member_${userId}`, member)
+        return member
     }
 
     // YouTube cache

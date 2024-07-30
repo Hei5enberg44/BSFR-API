@@ -8,11 +8,6 @@ import { WS_SessionModel } from '../models/website.model.js'
 import Logger from '../utils/logger.js'
 import config from '../config.json' assert { type: 'json' }
 
-export interface DecodedToken extends RESTPostOAuth2AccessTokenResult {
-    expiration_date: number,
-    iat: number
-}
-
 export class AuthError extends Error {
     constructor(message: string) {
         super(message)
@@ -53,8 +48,16 @@ export class AuthVerifyTokenError extends Error {
     }
 }
 
+export class AuthRefreshTokenError extends Error {
+    constructor() {
+        super()
+        this.name = 'AuthRefreshTokenError'
+        Error.captureStackTrace(this, this.constructor)
+    }
+}
+
 export class Auth {
-    private static async setToken(token: RESTPostOAuth2AccessTokenResult): Promise<string> {
+    private static async setToken(token: RESTPostOAuth2AccessTokenResult) {
         try {
             const t = await new Promise((res, rej) => {
                 jwt.sign(token, config.jwt.secret, { algorithm: 'HS256' },
@@ -63,7 +66,7 @@ export class Auth {
                         if(typeof token === 'undefined')
                             rej('Échec de création du JWT')
                         else
-                            res(token as string)
+                            res(token)
                     })
             }) as string
             return t
@@ -72,7 +75,7 @@ export class Auth {
         }
     }
 
-    private static async decodeToken(token: string): Promise<DecodedToken> {
+    private static async decodeToken(token: string) {
         try {
             const t = await new Promise((res, rej) => {
                 jwt.verify(token, config.jwt.secret, (err, decoded) => {
@@ -80,12 +83,40 @@ export class Auth {
                     if(typeof token === 'undefined')
                         rej('Impossible de décoder le JWT')
                     else
-                        res(decoded as DecodedToken)
+                        res(decoded)
                 })
-            }) as DecodedToken
-            return t
+            })
+            return t as RESTPostOAuth2AccessTokenResult
         } catch(error) {
             throw new AuthVerifyTokenError()
+        }
+    }
+
+    private static async updateToken(sessionId: string, token: RESTPostOAuth2AccessTokenResult) {
+        try {
+            const newToken = await DiscordClient.oauth2TokenRefresh(token)
+
+            const currentUser = await DiscordClient.getCurrentUser(newToken)
+
+            const userToken = await this.setToken(newToken)
+            const tokenExpire = Math.floor(Date.now() / 1000) + token.expires_in - 300
+
+            await WS_SessionModel.update({
+                token: userToken,
+                expire: new Date(tokenExpire * 1000)
+            }, {
+                where: {
+                    sessionId
+                }
+            })
+
+            Logger.log('Auth', 'INFO', `Le token de l'utilisateur ${currentUser.username} a été actualisé`)
+
+            return newToken
+        } catch(error) {
+            if(!(error instanceof DiscordClientError))
+                Logger.log('Auth', 'ERROR', (error as Error).message)
+            throw new AuthRefreshTokenError()
         }
     }
 
@@ -119,7 +150,7 @@ export class Auth {
             }
         })
 
-        if(!session || !session.sessionId) {
+        if(!session) {
             Logger.log('Auth', 'ERROR', 'Identifiant de session invalide')
             throw new AuthSessionNotFoundError()
         }
@@ -130,6 +161,9 @@ export class Auth {
         }
 
         const decodedToken = await this.decodeToken(session.token)
+
+        if(new Date() > session.expire)
+            return await this.updateToken(sessionId, decodedToken)
 
         return decodedToken
     }
