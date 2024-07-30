@@ -3,7 +3,7 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import z from 'zod'
 
 import { DiscordClient, DiscordClientError } from '../controllers/discord.js'
-import { Auth, AuthSessionNotFoundError, AuthTokenNotFoundError, AuthVerifyTokenError, AuthRefreshTokenError } from '../controllers/auth.js'
+import { Auth, AuthError } from '../controllers/auth.js'
 
 import config from '../config.json' assert { type: 'json' }
 
@@ -65,7 +65,7 @@ export default async (app: FastifyInstance) => {
             const appUser = await DiscordClient.getUserData(user)
             res.send(appUser)
         } catch(error) {
-            if(error instanceof DiscordClientError || error instanceof AuthSessionNotFoundError || error instanceof AuthTokenNotFoundError || error instanceof AuthVerifyTokenError || error instanceof AuthRefreshTokenError) {
+            if(error instanceof DiscordClientError || error instanceof AuthError) {
                 res.status(401).send({ error: 'Session utilisateur invalide' })
             } else {
                 res.status(500).send({ error: 'Impossible de récupérer les informations de l\'utilisateur' })

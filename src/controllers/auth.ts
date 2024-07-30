@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken'
 import crypto from 'node:crypto'
 import { RESTPostOAuth2AccessTokenResult } from 'discord-api-types/v10'
 
-import { DiscordClient, DiscordClientError } from './discord.js'
+import { DiscordClient } from './discord.js'
 import { WS_SessionModel } from '../models/website.model.js'
 
 import Logger from '../utils/logger.js'
@@ -16,43 +16,80 @@ export class AuthError extends Error {
     }
 }
 
-export class AuthSessionNotFoundError extends Error {
-    constructor() {
-        super()
+class AuthRegisterError extends AuthError {
+    token: RESTPostOAuth2AccessTokenResult
+
+    constructor(message: string, token: RESTPostOAuth2AccessTokenResult) {
+        super(message)
+        this.token = token
+        this.name = 'AuthRegisterError'
+        Error.captureStackTrace(this, this.constructor)
+
+        Logger.log('Auth', 'ERROR', `${message} (token: ${JSON.stringify(token)})`)
+    }
+}
+
+class AuthSessionNotFoundError extends AuthError {
+    sessionId: string
+
+    constructor(message: string, sessionId: string) {
+        super(message)
+        this.sessionId = sessionId
         this.name = 'AuthSessionNotFoundError'
         Error.captureStackTrace(this, this.constructor)
+
+        Logger.log('Auth', 'ERROR', `${message} (sessionId: ${sessionId})`)
     }
 }
 
-export class AuthTokenNotFoundError extends Error {
-    constructor() {
-        super()
+class AuthTokenNotFoundError extends AuthError {
+    constructor(message: string) {
+        super(message)
         this.name = 'AuthTokenNotFoundError'
         Error.captureStackTrace(this, this.constructor)
+
+        Logger.log('Auth', 'ERROR', message)
     }
 }
 
-export class AuthSignTokenError extends Error {
-    constructor() {
-        super()
+class AuthSignTokenError extends AuthError {
+    token: RESTPostOAuth2AccessTokenResult
+
+    constructor(message: string, token: RESTPostOAuth2AccessTokenResult) {
+        super(message)
+        this.token = token
         this.name = 'AuthSignTokenError'
         Error.captureStackTrace(this, this.constructor)
+
+        Logger.log('Auth', 'ERROR', `${message} (token: ${JSON.stringify(token)})`)
     }
 }
 
-export class AuthVerifyTokenError extends Error {
-    constructor() {
-        super()
+class AuthVerifyTokenError extends AuthError {
+    token: string
+
+    constructor(message: string, token: string) {
+        super(message)
+        this.token = token
         this.name = 'AuthVerifyTokenError'
         Error.captureStackTrace(this, this.constructor)
+
+        Logger.log('Auth', 'ERROR', `${message} (token: ${token})`)
     }
 }
 
-export class AuthRefreshTokenError extends Error {
-    constructor() {
-        super()
+class AuthRefreshTokenError extends AuthError {
+    sessionId: string
+    token: RESTPostOAuth2AccessTokenResult
+
+    constructor(message: string, sessionId: string, token: RESTPostOAuth2AccessTokenResult) {
+        super(message)
+        this.sessionId = sessionId
+        this.token = token
         this.name = 'AuthRefreshTokenError'
         Error.captureStackTrace(this, this.constructor)
+
+        Logger.log('Auth', 'ERROR', `${message} (sessionId: ${sessionId}, token: ${JSON.stringify(token)})`)
     }
 }
 
@@ -64,14 +101,17 @@ export class Auth {
                     (err, token) => {
                         if(err) rej(err)
                         if(typeof token === 'undefined')
-                            rej('Échec de création du JWT')
+                            rej(new Error('Impossible de créer le JWT'))
                         else
                             res(token)
                     })
             }) as string
             return t
         } catch(error) {
-            throw new AuthSignTokenError()
+            if(error instanceof Error)
+                throw new AuthSignTokenError(error.message, token)
+            else
+                throw new AuthSignTokenError('Impossible de créer le JWT', token)
         }
     }
 
@@ -81,14 +121,17 @@ export class Auth {
                 jwt.verify(token, config.jwt.secret, (err, decoded) => {
                     if(err) rej(err)
                     if(typeof token === 'undefined')
-                        rej('Impossible de décoder le JWT')
+                        rej(new Error('Impossible de décoder le JWT'))
                     else
                         res(decoded)
                 })
             })
             return t as RESTPostOAuth2AccessTokenResult
         } catch(error) {
-            throw new AuthVerifyTokenError()
+            if(error instanceof Error)
+                throw new AuthVerifyTokenError(error.message, token)
+            else
+                throw new AuthVerifyTokenError('Impossible de décoder le JWT', token)
         }
     }
 
@@ -114,9 +157,7 @@ export class Auth {
 
             return newToken
         } catch(error) {
-            if(!(error instanceof DiscordClientError))
-                Logger.log('Auth', 'ERROR', (error as Error).message)
-            throw new AuthRefreshTokenError()
+            throw new AuthRefreshTokenError('Impossible d\'actualiser le token de l\'utilisateur', sessionId, token)
         }
     }
 
@@ -137,9 +178,7 @@ export class Auth {
             Logger.log('Auth', 'INFO', `L'utilisateur ${currentUser.username} s'est connecté`)
             return sessionId
         } catch(error) {
-            if(!(error instanceof DiscordClientError))
-                Logger.log('Auth', 'ERROR', (error as Error).message)
-            throw new AuthError('Authentification impossible')
+            throw new AuthRegisterError('Authentification impossible', token)
         }
     }
 
@@ -151,13 +190,11 @@ export class Auth {
         })
 
         if(!session) {
-            Logger.log('Auth', 'ERROR', 'Identifiant de session invalide')
-            throw new AuthSessionNotFoundError()
+            throw new AuthSessionNotFoundError('Identifiant de session introuvable', sessionId)
         }
 
         if(!session.token) {
-            Logger.log('Auth', 'ERROR', `Token de session invalide`)
-            throw new AuthTokenNotFoundError()
+            throw new AuthTokenNotFoundError('Token de session invalide')
         }
 
         const decodedToken = await this.decodeToken(session.token)
