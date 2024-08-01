@@ -1,6 +1,6 @@
 import { A_YoutubeVideoModel } from "../models/agent.model.js"
 
-export default class YouTube {
+export class YouTube {
     /**
      * Récupère la dernière vidéo YouTube publiée sur la chaîne
      */

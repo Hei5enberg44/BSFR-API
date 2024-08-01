@@ -23,6 +23,15 @@ export class Cache {
         return member
     }
 
+    public static getMembers(): APIGuildMember[] | undefined {
+        return cache.get('members')
+    }
+
+    public static setMembers(members: APIGuildMember[]): APIGuildMember[] {
+        cache.set('members', members)
+        return members
+    }
+
     // YouTube cache
     public static getLastYouTubeVideo() {
         return cache.get('last_youtube_video')

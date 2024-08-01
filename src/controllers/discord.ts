@@ -14,17 +14,12 @@ export class DiscordClientError extends Error {
     }
 }
 
-export interface UserParams {
-    nick?: string,
-    isAdmin: boolean,
-    isBSFR: boolean
-}
-
 export interface UserData {
     id: string,
     username: string,
     avatarURL: string,
-    params: UserParams
+    isAdmin: boolean,
+    isBSFR: boolean
 }
 
 export class DiscordClient {
@@ -35,6 +30,7 @@ export class DiscordClient {
             const result = await fn(...args)
             return result
         } catch(error) {
+            console.log(error)
             if(error instanceof RateLimitError) {
                 if(currRetry > maxTry) {
                     throw error
@@ -182,10 +178,10 @@ export class DiscordClient {
     }
 
     public static async getUserData(user: APIUser): Promise<UserData> {
-        const index = user.discriminator === '0' ? Number((BigInt(user.id) >> 22n) % 6n) : Number(user.discriminator) % 5
-        const avatarURL = user.avatar ? CDNRoutes.userAvatar(user.id, user.avatar, ImageFormat.WebP) : CDNRoutes.defaultUserAvatar(index as DefaultUserAvatarAssets)
-
-        const userParams: UserParams = {
+        const userData: UserData = {
+            id: user.id,
+            username: user.global_name || user.username,
+            avatarURL: this.getUserAvatar(user),
             isAdmin: false,
             isBSFR: false
         }
@@ -193,19 +189,62 @@ export class DiscordClient {
         try {
             const member = await this.getGuildMember(user.id)
             if(member) {
-                if(member.nick) userParams.nick = member.nick
-                userParams.isBSFR = true
+                userData.username = this.getUsername(member)
+                userData.isBSFR = true
                 // On vérifie si le membre a le rôle "Administrateur" ou "Modérateur"
                 if(member.roles.find(r => r === config.discord.roles['Admin'] || r === config.discord.roles['Modérateur']))
-                    userParams.isAdmin = true
+                    userData.isAdmin = true
             }
         } catch(error) {}
 
-        return {
-            id: user.id,
-            username: userParams.nick || user.global_name || user.username,
-            avatarURL: `https://cdn.discordapp.com${avatarURL}`,
-            params: userParams
+        return userData
+    }
+
+    public static getUsername(member: APIGuildMember) {
+        return member.nick || member.user.global_name || member.user.username
+    }
+
+    public static getUserAvatar(user: APIUser) {
+        const index = user.discriminator === '0' ? Number((BigInt(user.id) >> 22n) % 6n) : Number(user.discriminator) % 5
+        const avatarURL = user.avatar ? CDNRoutes.userAvatar(user.id, user.avatar, ImageFormat.WebP) : CDNRoutes.defaultUserAvatar(index as DefaultUserAvatarAssets)
+        return `https://cdn.discordapp.com${avatarURL}`
+    }
+
+    public static async getGuildMembers(after: string | null = null): Promise<APIGuildMember[]> {
+        const cachedMembers = Cache.getMembers()
+        if(cachedMembers) return cachedMembers
+
+        try {
+            const limit = 1000
+            let members: APIGuildMember[] = []
+            do {
+                const params: Record<string, string> = {
+                    limit: limit.toString()
+                }
+
+                if(after) params.after = after
+
+                const rest = new REST().setToken(config.discord.bot_token)
+                const data = await rest.get(Routes.guildMembers(config.discord.guild_id), {
+                    query: new URLSearchParams(params)
+                }) as APIGuildMember[]
+
+                after = data.length === limit ? data.length > 0 ? ([...data].pop())?.user.id || null : null : null
+                members = [ ...members, ...data ]
+            } while(after !== null)
+            return members
+        } catch(error) {
+            if(error instanceof DiscordAPIError) {
+                Logger.log('Discord', 'ERROR', `${error.message}`)
+            } else if(error instanceof RateLimitError) {
+                Logger.log('Discord', 'ERROR', `${error.message} (url: ${error.url}), nouvel essai dans ${error.retryAfter}ms.`)
+                try {
+                    return await this.retry(this.getGuildMembers, [after], error, 1)
+                } catch(error) {
+                    Logger.log('Discord', 'ERROR', `Toutes les tentatives ont échoué.`)
+                }
+            }
+            throw new DiscordClientError('Récupération des membres de la guild impossible')
         }
     }
 }

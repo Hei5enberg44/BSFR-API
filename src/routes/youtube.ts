@@ -1,9 +1,9 @@
 import { FastifyInstance } from 'fastify'
-import youtube from '../controllers/youtube.js'
+import { YouTube } from '../controllers/youtube.js'
 
 export default async (app: FastifyInstance) => {
     app.get('/getLastVideo', async (req, res) => {
-        const lastVideo = await youtube.getLastVideo()
+        const lastVideo = await YouTube.getLastVideo()
         res.send(lastVideo ? {
             videoId: lastVideo.videoId,
             publishedAt: lastVideo.publishedAt,
