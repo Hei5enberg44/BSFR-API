@@ -1,16 +1,25 @@
 import NodeCache from 'node-cache'
 import { APIUser, APIGuildMember } from 'discord-api-types/v10'
 
-const cache = new NodeCache({ stdTTL: 300 })
+const cache = new NodeCache({ stdTTL: 1800 })
 
 export class Cache {
     // Discord cache
-    public static getUser(accessToken: string): APIUser | undefined {
+    public static getAuthUser(accessToken: string): APIUser | undefined {
         return cache.get(`user_${accessToken}`)
     }
 
-    public static setUser(accessToken: string, user: APIUser): APIUser {
+    public static setAuthUser(accessToken: string, user: APIUser): APIUser {
         cache.set(`user_${accessToken}`, user)
+        return user
+    }
+
+    public static getUser(userId: string): APIUser | undefined {
+        return cache.get(`user_${userId}`)
+    }
+
+    public static setUser(user: APIUser): APIUser {
+        cache.set(`user_${user.id}`, user)
         return user
     }
 
@@ -18,7 +27,10 @@ export class Cache {
         return cache.get(`member_${userId}`)
     }
 
-    public static setMember(userId: string, member: APIGuildMember): APIGuildMember {
+    public static setMember(
+        userId: string,
+        member: APIGuildMember
+    ): APIGuildMember {
         cache.set(`member_${userId}`, member)
         return member
     }
@@ -30,15 +42,5 @@ export class Cache {
     public static setMembers(members: APIGuildMember[]): APIGuildMember[] {
         cache.set('members', members)
         return members
-    }
-
-    // YouTube cache
-    public static getLastYouTubeVideo() {
-        return cache.get('last_youtube_video')
-    }
-
-    public static setLastYouTubeVideo(video: any): any {
-        cache.set('last_youtube_video', video)
-        return video
     }
 }

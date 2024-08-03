@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import z from 'zod'
 
-import { DiscordClient, DiscordClientError } from '../controllers/discord.js'
+import { DiscordClient } from '../controllers/discord.js'
 import { Auth, AuthError } from '../controllers/auth.js'
 
 import config from '../config.json' assert { type: 'json' }
@@ -46,11 +46,14 @@ export default async (app: FastifyInstance) => {
             const { code, state } = req.body
 
             try {
-                const token = await DiscordClient.oauth2TokenExchange(code, state)
+                const token = await DiscordClient.oauth2TokenExchange(
+                    code,
+                    state
+                )
                 const sessionId = await Auth.register(token)
                 res.send({ sessionId })
-            } catch(error) {
-                res.status(500).send({ error: 'La connexion à Discord a échouée' })
+            } catch (error) {
+                throw error
             }
         }
     })
@@ -58,17 +61,16 @@ export default async (app: FastifyInstance) => {
     app.get('/@me', async (req, res) => {
         try {
             const sessionId = req.cookies.sessionId
-            if(!sessionId) throw new Error('Cookies invalides')
+            if (!sessionId) throw new Error('Cookies invalides')
 
             const token = await Auth.check(sessionId)
-            const user = await DiscordClient.getCurrentUser(token)
-            const appUser = await DiscordClient.getUserData(user)
-            res.send(appUser)
-        } catch(error) {
-            if(error instanceof DiscordClientError || error instanceof AuthError) {
-                res.status(401).send({ error: 'Session utilisateur invalide' })
+            const user = await DiscordClient.getUserData(token)
+            res.send(user)
+        } catch (error) {
+            if (error instanceof AuthError) {
+                res.status(401).send({ message: error.message })
             } else {
-                res.status(500).send({ error: 'Impossible de récupérer les informations de l\'utilisateur' })
+                throw error
             }
         }
     })

@@ -16,14 +16,17 @@ export class City {
     static async getCityList(cityName: string) {
         const params: DatasetRecordsQueryParams = {
             select: 'geoname_id, name, country, coordinates',
-            where: `name LIKE \'%${cityName.replace('\'', '\\\'')}%\'`,
+            where: `name LIKE \'%${cityName.replace("'", "\\'")}%\'`,
             include_links: false,
             include_app_metas: false,
             offset: 0,
             limit: 50
         }
-        const cities = await OpenDataSoftAPI.getDatasetRecords('geonames-all-cities-with-a-population-500', params)
-        return cities.results.map(r => {
+        const cities = await OpenDataSoftAPI.getDatasetRecords(
+            'geonames-all-cities-with-a-population-500',
+            params
+        )
+        return cities.results.map((r) => {
             return {
                 id: r.geoname_id,
                 name: `${r.name} (${r.country})`
@@ -40,7 +43,10 @@ export class City {
             offset: 0,
             limit: 50
         }
-        const cities = await OpenDataSoftAPI.getDatasetRecords('geonames-all-cities-with-a-population-500', params)
+        const cities = await OpenDataSoftAPI.getDatasetRecords(
+            'geonames-all-cities-with-a-population-500',
+            params
+        )
         return cities.results
     }
 }

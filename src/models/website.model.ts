@@ -1,28 +1,44 @@
-import { Sequelize, DataTypes, Model, InferAttributes, InferCreationAttributes, CreationOptional } from 'sequelize'
+import {
+    Sequelize,
+    DataTypes,
+    Model,
+    InferAttributes,
+    InferCreationAttributes,
+    CreationOptional
+} from 'sequelize'
 import config from '../config.json' assert { type: 'json' }
 
-const sequelizeWebsite = new Sequelize(config.databases.website.name, config.databases.website.username, config.databases.website.password, {
-    host: config.databases.website.host,
-    port: config.databases.website.port,
-    dialect: 'mariadb',
-    logging: false,
-    define: {
-        timestamps: false,
-        freezeTableName: true
-    },
-    timezone: 'Europe/Paris'
-})
+const sequelizeWebsite = new Sequelize(
+    config.databases.website.name,
+    config.databases.website.username,
+    config.databases.website.password,
+    {
+        host: config.databases.website.host,
+        port: config.databases.website.port,
+        dialect: 'mariadb',
+        logging: false,
+        define: {
+            timestamps: false,
+            freezeTableName: true
+        },
+        timezone: 'Europe/Paris'
+    }
+)
 
-interface WS_RunModel extends Model<InferAttributes<WS_RunModel>, InferCreationAttributes<WS_RunModel>> {
-    id: CreationOptional<number>,
-    memberId: string,
-    url: string,
-    description: string,
-    map: string,
-    headset: number,
-    grip: string,
-    comment: string | null,
-    date: Date | null,
+interface WS_RunModel
+    extends Model<
+        InferAttributes<WS_RunModel>,
+        InferCreationAttributes<WS_RunModel>
+    > {
+    id: CreationOptional<number>
+    memberId: string
+    url: string
+    description: string
+    map: string
+    headset: number
+    grip: string
+    comment: string | null
+    date: Date | null
     status: number
 }
 
@@ -43,10 +59,14 @@ const WS_RunModel = sequelizeWebsite.define<WS_RunModel>('runs', {
     status: DataTypes.INTEGER()
 })
 
-interface WS_SessionModel extends Model<InferAttributes<WS_SessionModel>, InferCreationAttributes<WS_SessionModel>> {
-    id: CreationOptional<number>,
-    sessionId: string,
-    token: string,
+interface WS_SessionModel
+    extends Model<
+        InferAttributes<WS_SessionModel>,
+        InferCreationAttributes<WS_SessionModel>
+    > {
+    id: CreationOptional<number>
+    sessionId: string
+    token: string
     expire: Date
 }
 
@@ -64,6 +84,4 @@ const WS_SessionModel = sequelizeWebsite.define<WS_SessionModel>('sessions', {
     expire: DataTypes.DATE()
 })
 
-export {
-    WS_RunModel, WS_SessionModel
-}
+export { WS_RunModel, WS_SessionModel }

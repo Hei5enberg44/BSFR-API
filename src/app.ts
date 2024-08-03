@@ -1,7 +1,10 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
-import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod'
+import {
+    serializerCompiler,
+    validatorCompiler
+} from 'fastify-type-provider-zod'
 
 import config from './config.json' assert { type: 'json' }
 
@@ -9,6 +12,7 @@ import config from './config.json' assert { type: 'json' }
 import discordRoutes from './routes/discord.js'
 import mapRoutes from './routes/map.js'
 import youtubeRoutes from './routes/youtube.js'
+import rankedleRoutes from './routes/rankedle.js'
 
 const app = Fastify()
 
@@ -18,9 +22,13 @@ app.setSerializerCompiler(serializerCompiler)
 
 // CORS
 app.register(cors, {
-    methods: [ 'GET', 'POST' ],
-    origin: [ 'http://localhost:4200', 'https://bsaber.fr', 'https://bsaber.weezle.xyz' ],
-    allowedHeaders: [ 'Content-Type' ]
+    methods: ['GET', 'POST'],
+    origin: [
+        'http://localhost:4200',
+        'https://bsaber.fr',
+        'https://bsaber.weezle.xyz'
+    ],
+    allowedHeaders: ['Content-Type']
 })
 
 // Cookies
@@ -30,10 +38,10 @@ app.register(cookie)
 app.register(discordRoutes, { prefix: '/discord' })
 app.register(mapRoutes, { prefix: '/map' })
 app.register(youtubeRoutes, { prefix: '/youtube' })
-
+app.register(rankedleRoutes, { prefix: '/rankedle' })
 
 app.listen({ port: config.app.port }, (err, address) => {
-    if(err) {
+    if (err) {
         app.log.error(err)
     }
 })

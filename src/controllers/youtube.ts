@@ -1,4 +1,4 @@
-import { A_YoutubeVideoModel } from "../models/agent.model.js"
+import { A_YoutubeVideoModel } from '../models/agent.model.js'
 
 export class YouTube {
     /**
@@ -6,9 +6,7 @@ export class YouTube {
      */
     public static async getLastVideo() {
         const video = await A_YoutubeVideoModel.findOne({
-            order: [
-                [ 'publishedAt', 'desc' ]
-            ]
+            order: [['publishedAt', 'desc']]
         })
 
         return video

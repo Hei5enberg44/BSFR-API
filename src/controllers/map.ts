@@ -8,13 +8,13 @@ export class InteractiveMap {
         const members = await DiscordClient.getGuildMembers()
         const cities = await A_CitieModel.findAll({ raw: true })
 
-        for(const city of cities) {
+        for (const city of cities) {
             const memberId = city.memberId
-            const member = members.find(m => m.user.id === memberId)
-            
-            if(member) {
+            const member = members.find((m) => m.user.id === memberId)
+
+            if (member) {
                 const user = member.user
-                const username = DiscordClient.getUsername(member)
+                const username = DiscordClient.getUserNick(user)
 
                 const coords = city.coordonnees_gps
                 const countryName = city.pays
