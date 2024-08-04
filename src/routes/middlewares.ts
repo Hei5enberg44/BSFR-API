@@ -1,0 +1,23 @@
+import { FastifyRequest, FastifyReply, DoneFuncWithErrOrRes } from 'fastify'
+import { Auth, AuthError, AuthNoSessionError } from '../controllers/auth.js'
+
+export const authCheck = async (
+    req: FastifyRequest,
+    res: FastifyReply,
+    done: DoneFuncWithErrOrRes
+) => {
+    try {
+        const sessionId = req.cookies.sessionId
+        const token = await Auth.check(sessionId)
+        req.token = token
+        done()
+    } catch (error) {
+        if (error instanceof AuthNoSessionError) {
+            res.status(403).send({ message: error.message })
+        } else if (error instanceof AuthError) {
+            res.status(401).send({ message: error.message })
+        } else {
+            throw error
+        }
+    }
+}

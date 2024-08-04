@@ -5,16 +5,14 @@ export class InteractiveMap {
     public static async getMembersCity() {
         const membersCity = []
 
-        const members = await DiscordClient.getGuildMembers()
         const cities = await A_CitieModel.findAll({ raw: true })
 
         for (const city of cities) {
             const memberId = city.memberId
-            const member = members.find((m) => m.user.id === memberId)
+            const member = await DiscordClient.getGuildMember(memberId)
 
             if (member) {
-                const user = member.user
-                const username = DiscordClient.getUserNick(user)
+                const username = DiscordClient.getMemberNick(member)
 
                 const coords = city.coordonnees_gps
                 const countryName = city.pays
@@ -22,7 +20,7 @@ export class InteractiveMap {
 
                 membersCity.push({
                     username,
-                    avatarURL: DiscordClient.getUserAvatar(user),
+                    avatarURL: DiscordClient.getUserAvatar(member.user),
                     coords,
                     countryName,
                     cityName

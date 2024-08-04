@@ -16,7 +16,7 @@ export class AuthError extends Error {
     }
 }
 
-class AuthRegisterError extends AuthError {
+export class AuthRegisterError extends AuthError {
     token: RESTPostOAuth2AccessTokenResult
 
     constructor(message: string, token: RESTPostOAuth2AccessTokenResult) {
@@ -33,7 +33,17 @@ class AuthRegisterError extends AuthError {
     }
 }
 
-class AuthSessionNotFoundError extends AuthError {
+export class AuthNoSessionError extends AuthError {
+    constructor(message: string) {
+        super(message)
+        this.name = 'AuthNoSessionError'
+        Error.captureStackTrace(this, this.constructor)
+
+        Logger.log('Auth', 'ERROR', `${message}`)
+    }
+}
+
+export class AuthSessionNotFoundError extends AuthError {
     sessionId: string
 
     constructor(message: string, sessionId: string) {
@@ -46,7 +56,7 @@ class AuthSessionNotFoundError extends AuthError {
     }
 }
 
-class AuthTokenNotFoundError extends AuthError {
+export class AuthTokenNotFoundError extends AuthError {
     constructor(message: string) {
         super(message)
         this.name = 'AuthTokenNotFoundError'
@@ -56,7 +66,7 @@ class AuthTokenNotFoundError extends AuthError {
     }
 }
 
-class AuthSignTokenError extends AuthError {
+export class AuthSignTokenError extends AuthError {
     token: RESTPostOAuth2AccessTokenResult
 
     constructor(message: string, token: RESTPostOAuth2AccessTokenResult) {
@@ -73,7 +83,7 @@ class AuthSignTokenError extends AuthError {
     }
 }
 
-class AuthVerifyTokenError extends AuthError {
+export class AuthVerifyTokenError extends AuthError {
     token: string
 
     constructor(message: string, token: string) {
@@ -86,7 +96,7 @@ class AuthVerifyTokenError extends AuthError {
     }
 }
 
-class AuthRefreshTokenError extends AuthError {
+export class AuthRefreshTokenError extends AuthError {
     sessionId: string
     token: RESTPostOAuth2AccessTokenResult
 
@@ -228,7 +238,10 @@ export class Auth {
         }
     }
 
-    public static async check(sessionId: string) {
+    public static async check(sessionId: string | undefined) {
+        if (typeof sessionId === 'undefined')
+            throw new AuthNoSessionError('Cookie de session invalide')
+
         const session = await WS_SessionModel.findOne({
             where: {
                 sessionId

@@ -44,7 +44,6 @@ export class DiscordClient {
             const result = await fn(...args)
             return result
         } catch (error) {
-            console.log(error)
             if (error instanceof RateLimitError) {
                 if (currRetry > maxTry) {
                     throw error
@@ -214,19 +213,24 @@ export class DiscordClient {
         }
     }
 
-    public static async getUser(userId: string): Promise<APIUser | undefined> {
-        const cachedUser = Cache.getUser(userId)
-        if (cachedUser) return cachedUser
+    public static async getUser(userId: string): Promise<APIUser | null> {
+        await this.getGuildMembers()
+
+        const cachedMember = Cache.getMember(userId)
+        const cachedUser = cachedMember
+            ? cachedMember.user
+            : Cache.getUser(userId)
+        if (typeof cachedUser !== 'undefined') return cachedUser
 
         try {
             const rest = new REST().setToken(config.discord.bot_token)
             const user = (await rest.get(Routes.user(userId))) as APIUser
-            return Cache.setUser(user)
+            return Cache.setUser(userId, user)
         } catch (error) {
             if (error instanceof DiscordAPIError) {
                 if (error.code === 10007) {
                     // Unknown Member
-                    return undefined
+                    return Cache.setUser(userId, undefined)
                 } else {
                     Logger.log('Discord', 'ERROR', `${error.message}`)
                 }
@@ -254,47 +258,12 @@ export class DiscordClient {
 
     public static async getGuildMember(
         userId: string
-    ): Promise<APIGuildMember | undefined> {
-        const cachedMember = Cache.getMember(userId)
-        if (cachedMember) return cachedMember
+    ): Promise<APIGuildMember | null> {
+        await this.getGuildMembers()
 
-        try {
-            const rest = new REST().setToken(config.discord.bot_token)
-            const member = (await rest.get(
-                Routes.guildMember(config.discord.guild_id, userId)
-            )) as APIGuildMember
-            return Cache.setMember(userId, member)
-        } catch (error) {
-            if (error instanceof DiscordAPIError) {
-                if (error.code === 10007) {
-                    // Unknown Member
-                    return undefined
-                } else {
-                    Logger.log('Discord', 'ERROR', `${error.message}`)
-                }
-            } else if (error instanceof RateLimitError) {
-                Logger.log(
-                    'Discord',
-                    'ERROR',
-                    `${error.message} (url: ${error.url}), nouvel essai dans ${error.retryAfter}ms.`
-                )
-                try {
-                    return await this.retry(
-                        this.getGuildMember,
-                        [userId],
-                        error,
-                        1
-                    )
-                } catch (error) {
-                    Logger.log(
-                        'Discord',
-                        'ERROR',
-                        `Toutes les tentatives ont échoué.`
-                    )
-                }
-            }
-            throw new DiscordClientError('Récupération du membre impossible')
-        }
+        const cachedMember = Cache.getMember(userId)
+        if (typeof cachedMember !== 'undefined') return cachedMember
+        return null
     }
 
     public static async getUserData(
@@ -379,7 +348,7 @@ export class DiscordClient {
                         : null
                 members = [...members, ...data]
             } while (after !== null)
-            return members
+            return Cache.setMembers(members)
         } catch (error) {
             if (error instanceof DiscordAPIError) {
                 Logger.log('Discord', 'ERROR', `${error.message}`)

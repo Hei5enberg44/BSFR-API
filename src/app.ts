@@ -6,6 +6,8 @@ import {
     validatorCompiler
 } from 'fastify-type-provider-zod'
 
+import { RESTPostOAuth2AccessTokenResult } from 'discord-api-types/v10'
+
 import config from './config.json' assert { type: 'json' }
 
 // Routes
@@ -14,11 +16,13 @@ import mapRoutes from './routes/map.js'
 import youtubeRoutes from './routes/youtube.js'
 import rankedleRoutes from './routes/rankedle.js'
 
-const app = Fastify()
+declare module 'fastify' {
+    export interface FastifyRequest {
+        token: RESTPostOAuth2AccessTokenResult
+    }
+}
 
-// Schema validator and serializer
-app.setValidatorCompiler(validatorCompiler)
-app.setSerializerCompiler(serializerCompiler)
+const app = Fastify()
 
 // CORS
 app.register(cors, {
@@ -27,9 +31,12 @@ app.register(cors, {
         'http://localhost:4200',
         'https://bsaber.fr',
         'https://bsaber.weezle.xyz'
-    ],
-    allowedHeaders: ['Content-Type']
+    ]
 })
+
+// Schema validator and serializer
+app.setValidatorCompiler(validatorCompiler)
+app.setSerializerCompiler(serializerCompiler)
 
 // Cookies
 app.register(cookie)
@@ -40,8 +47,6 @@ app.register(mapRoutes, { prefix: '/map' })
 app.register(youtubeRoutes, { prefix: '/youtube' })
 app.register(rankedleRoutes, { prefix: '/rankedle' })
 
-app.listen({ port: config.app.port }, (err, address) => {
-    if (err) {
-        app.log.error(err)
-    }
+app.listen({ port: config.app.port }, async (err, address) => {
+    if (err) app.log.error(err)
 })
