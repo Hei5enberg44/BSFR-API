@@ -7,8 +7,6 @@ import { authCheck } from './middlewares.js'
 
 import { Rankedle } from '../controllers/rankedle.js'
 
-import config from '../config.json' assert { type: 'json' }
-
 export default async (app: FastifyInstance) => {
     app.route({
         method: 'GET',
@@ -54,7 +52,6 @@ export default async (app: FastifyInstance) => {
         handler: async (req, res) => {
             const user = await DiscordClient.getCurrentUser(req.token)
             const stats = await Rankedle.getUserStats(user.id)
-            await new Promise((res) => setTimeout(res, 1000))
             res.send(stats)
         }
     })
@@ -72,7 +69,11 @@ export default async (app: FastifyInstance) => {
         handler: async (req, res) => {
             const { first, rows } = req.query
             const user = await DiscordClient.getCurrentUser(req.token)
-            const history = await Rankedle.getRankedleHistory(user.id, parseInt(first), parseInt(rows))
+            const history = await Rankedle.getRankedleHistory(
+                user.id,
+                parseInt(first),
+                parseInt(rows)
+            )
             res.send(history)
         }
     })

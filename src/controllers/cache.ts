@@ -24,7 +24,9 @@ export class Cache {
 
     public static getUser(userId: string): APIUser | null | undefined {
         const cachedUsers = cache.get('users') as CachedUsers
-        return Object.hasOwn(cachedUsers, userId) ? cachedUsers[userId] : undefined
+        return Object.hasOwn(cachedUsers, userId)
+            ? cachedUsers[userId]
+            : undefined
     }
 
     public static setUser(
@@ -32,7 +34,7 @@ export class Cache {
         user: APIUser | undefined
     ): APIUser | null {
         cache.set('users', {
-            ...cache.get('users') as CachedUsers,
+            ...(cache.get('users') as CachedUsers),
             [userId]: user ?? null
         })
         return user ?? null
@@ -58,7 +60,9 @@ export class Cache {
 
     public static getMember(userId: string): APIGuildMember | null | undefined {
         const cachedMembers = cache.get('members') as CachedMembers
-        return Object.hasOwn(cachedMembers, userId) ? cachedMembers[userId] : undefined
+        return Object.hasOwn(cachedMembers, userId)
+            ? cachedMembers[userId]
+            : undefined
     }
 
     public static setMember(
@@ -66,7 +70,7 @@ export class Cache {
         member: APIGuildMember | undefined
     ): APIGuildMember | null {
         cache.set('members', {
-            ...cache.get('members') as CachedMembers,
+            ...(cache.get('members') as CachedMembers),
             [userId]: member ?? null
         })
         return member ?? null

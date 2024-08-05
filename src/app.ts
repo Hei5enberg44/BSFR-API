@@ -26,11 +26,18 @@ const app = Fastify()
 
 // CORS
 app.register(cors, {
-    methods: ['GET', 'POST'],
+    methods: ['GET', 'POST', 'OPTIONS'],
     origin: [
         'http://localhost:4200',
         'https://bsaber.fr',
         'https://bsaber.weezle.xyz'
+    ],
+    allowedHeaders: [
+        'Authorization',
+        'Origin',
+        'X-Requested-With',
+        'Content-Type',
+        'Accept'
     ]
 })
 

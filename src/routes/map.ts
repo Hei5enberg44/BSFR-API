@@ -1,9 +1,15 @@
 import { FastifyInstance } from 'fastify'
 import { InteractiveMap } from '../controllers/map.js'
+import { authCheck } from './middlewares.js'
 
 export default async (app: FastifyInstance) => {
-    app.get('/membersCity', async (req, res) => {
-        const cities = await InteractiveMap.getMembersCity()
-        res.send(cities)
+    app.route({
+        method: 'GET',
+        url: '/membersCity',
+        onRequest: authCheck,
+        handler: async (req, res) => {
+            const cities = await InteractiveMap.getMembersCity()
+            res.send(cities)
+        }
     })
 }

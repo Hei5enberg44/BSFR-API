@@ -344,24 +344,28 @@ export class Rankedle {
         return score
     }
 
-    static async getUserStats(memberId: string): Promise<RankedlePlayerStats | null> {
+    static async getUserStats(
+        memberId: string
+    ): Promise<RankedlePlayerStats | null> {
         const seasonId = await this.getCurrentSeason()
         const stats = await R_RankedleStatModel.findOne({
             where: { memberId, seasonId },
             raw: true
         })
-        return stats ? {
-            try1: stats.try1,
-            try2: stats.try2,
-            try3: stats.try3,
-            try4: stats.try4,
-            try5: stats.try5,
-            try6: stats.try6,
-            played: stats.played,
-            won: stats.won,
-            currentStreak: stats.currentStreak,
-            maxStreak: stats.maxStreak
-        } : null
+        return stats
+            ? {
+                  try1: stats.try1,
+                  try2: stats.try2,
+                  try3: stats.try3,
+                  try4: stats.try4,
+                  try5: stats.try5,
+                  try6: stats.try6,
+                  played: stats.played,
+                  won: stats.won,
+                  currentStreak: stats.currentStreak,
+                  maxStreak: stats.maxStreak
+              }
+            : null
     }
 
     static isBanned(memberId: string) {
@@ -884,24 +888,27 @@ export class Rankedle {
         return scores
     }
 
-    static async getRankedleHistory(memberId: string, first: number = 0, rows: number = 10) {
+    static async getRankedleHistory(
+        memberId: string,
+        first: number = 0,
+        rows: number = 10
+    ) {
         const history = []
 
-        const { count: total, rows: rankedles } = await R_RankedleModel.findAndCountAll({
-            where: {
-                date: {
-                    [Op.lt]: new Date()
-                }
-            },
-            order: [
-                [ 'date', 'desc' ]
-            ],
-            offset: first,
-            limit: rows,
-            raw: true
-        })
+        const { count: total, rows: rankedles } =
+            await R_RankedleModel.findAndCountAll({
+                where: {
+                    date: {
+                        [Op.lt]: new Date()
+                    }
+                },
+                order: [['date', 'desc']],
+                offset: first,
+                limit: rows,
+                raw: true
+            })
 
-        for(const rankedle of rankedles) {
+        for (const rankedle of rankedles) {
             const mapData = await R_RankedleMapModel.findOne({
                 where: { id: rankedle.mapId },
                 raw: true
@@ -916,28 +923,57 @@ export class Rankedle {
             })
 
             let score = null
-            if(rankedleScore) {
-                const steps: Array<null | string> = [ null, null, null, null, null, null ]
-                if(rankedleScore.details) {
-                    for(let i = 0; i < rankedleScore.details.length; i++) {
+            if (rankedleScore) {
+                const steps: Array<null | string> = [
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+                ]
+                if (rankedleScore.details) {
+                    for (let i = 0; i < rankedleScore.details.length; i++) {
                         const detail = rankedleScore.details[i]
                         steps[i] = detail.status
                     }
                 }
-                if(rankedleScore.success) steps[rankedleScore.skips] = 'success'
+                if (rankedleScore.success)
+                    steps[rankedleScore.skips] = 'success'
                 score = [
-                    (!rankedleScore.success ? '🔇' : rankedleScore.skips === 0 ? '🔊' : '🔉'),
-                    ...steps.map(s => s === 'skip' ? '⬛' : s === 'fail' ? '🟥' : s === 'success' ? '🟩' : '⬜')
+                    !rankedleScore.success
+                        ? '🔇'
+                        : rankedleScore.skips === 0
+                          ? '🔊'
+                          : '🔉',
+                    ...steps.map((s) =>
+                        s === 'skip'
+                            ? '⬛'
+                            : s === 'fail'
+                              ? '🟥'
+                              : s === 'success'
+                                ? '🟩'
+                                : '⬜'
+                    )
                 ]
             }
 
             history.push({
                 id: rankedle.id,
-                cover: mapData ? mapData.map.versions[mapData.map.versions.length - 1].coverURL : null,
-                songName: mapData ? `${mapData.map.metadata.songAuthorName} - ${mapData.map.metadata.songName}${mapData.map.metadata.songSubName !== '' ? ` ${mapData.map.metadata.songSubName}` : ''}`: null,
-                levelAuthorName: mapData ? mapData.map.metadata.levelAuthorName: null,
+                cover: mapData
+                    ? mapData.map.versions[mapData.map.versions.length - 1]
+                          .coverURL
+                    : null,
+                songName: mapData
+                    ? `${mapData.map.metadata.songAuthorName} - ${mapData.map.metadata.songName}${mapData.map.metadata.songSubName !== '' ? ` ${mapData.map.metadata.songSubName}` : ''}`
+                    : null,
+                levelAuthorName: mapData
+                    ? mapData.map.metadata.levelAuthorName
+                    : null,
                 score: score,
-                date: new Intl.DateTimeFormat('FR-fr').format(new Date(rankedle.date as Date))
+                date: new Intl.DateTimeFormat('FR-fr').format(
+                    new Date(rankedle.date as Date)
+                )
             })
         }
 
