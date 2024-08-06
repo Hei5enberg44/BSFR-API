@@ -27,7 +27,7 @@ interface MapData {
 }
 
 interface RankedleScoreDetail {
-    status: string
+    status: 'skip' | 'fail'
     text: string
     mapId?: number
 }

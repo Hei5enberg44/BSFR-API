@@ -60,7 +60,7 @@ interface RankedlePlayerStats {
     maxStreak: number
 }
 
-interface RankedlePlayer {
+interface RankedlePlayerRanking {
     memberId: string
     name: string
     avatar: string
@@ -833,7 +833,7 @@ export class Rankedle {
         })
 
         let rank = 0
-        const ranking: RankedlePlayer[] = []
+        const ranking: RankedlePlayerRanking[] = []
         for (const player of rankingList) {
             const member = await DiscordClient.getGuildMember(player.memberId)
             if (!member) continue
@@ -922,41 +922,7 @@ export class Rankedle {
                 raw: true
             })
 
-            let score = null
-            if (rankedleScore) {
-                const steps: Array<null | string> = [
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
-                ]
-                if (rankedleScore.details) {
-                    for (let i = 0; i < rankedleScore.details.length; i++) {
-                        const detail = rankedleScore.details[i]
-                        steps[i] = detail.status
-                    }
-                }
-                if (rankedleScore.success)
-                    steps[rankedleScore.skips] = 'success'
-                score = [
-                    !rankedleScore.success
-                        ? '🔇'
-                        : rankedleScore.skips === 0
-                          ? '🔊'
-                          : '🔉',
-                    ...steps.map((s) =>
-                        s === 'skip'
-                            ? '⬛'
-                            : s === 'fail'
-                              ? '🟥'
-                              : s === 'success'
-                                ? '🟩'
-                                : '⬜'
-                    )
-                ]
-            }
+            const scoreData = this.getRankedleScoreData(rankedleScore)
 
             history.push({
                 id: rankedle.id,
@@ -970,7 +936,7 @@ export class Rankedle {
                 levelAuthorName: mapData
                     ? mapData.map.metadata.levelAuthorName
                     : null,
-                score: score,
+                score: scoreData,
                 date: new Intl.DateTimeFormat('FR-fr').format(
                     new Date(rankedle.date as Date)
                 )
@@ -981,6 +947,36 @@ export class Rankedle {
             first,
             total,
             history
+        }
+    }
+
+    private static getRankedleScoreData(rankedleScore: R_RankedleScoreModel | null) {
+        if(!rankedleScore) return null
+
+        const success = rankedleScore.success ? true : false
+        const skips = rankedleScore.skips
+
+        const steps: Array<'skip' | 'fail' | 'success' | null> = [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        ]
+        if (rankedleScore.details) {
+            for (let i = 0; i < rankedleScore.details.length; i++) {
+                const detail = rankedleScore.details[i]
+                steps[i] = detail.status
+            }
+        }
+        if (rankedleScore.success)
+            steps[rankedleScore.skips] = 'success'
+
+        return {
+            success,
+            skips,
+            steps
         }
     }
 

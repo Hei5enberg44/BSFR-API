@@ -61,8 +61,8 @@ export default async (app: FastifyInstance) => {
         url: '/history',
         schema: {
             querystring: z.object({
-                first: z.string(),
-                rows: z.string()
+                first: z.coerce.number(),
+                rows: z.coerce.number()
             })
         },
         onRequest: authCheck,
@@ -71,8 +71,8 @@ export default async (app: FastifyInstance) => {
             const user = await DiscordClient.getCurrentUser(req.token)
             const history = await Rankedle.getRankedleHistory(
                 user.id,
-                parseInt(first),
-                parseInt(rows)
+                first,
+                rows
             )
             res.send(history)
         }
