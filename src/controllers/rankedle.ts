@@ -950,8 +950,10 @@ export class Rankedle {
         }
     }
 
-    private static getRankedleScoreData(rankedleScore: R_RankedleScoreModel | null) {
-        if(!rankedleScore) return null
+    private static getRankedleScoreData(
+        rankedleScore: R_RankedleScoreModel | null
+    ) {
+        if (!rankedleScore) return null
 
         const success = rankedleScore.success ? true : false
         const skips = rankedleScore.skips
@@ -970,8 +972,7 @@ export class Rankedle {
                 steps[i] = detail.status
             }
         }
-        if (rankedleScore.success)
-            steps[rankedleScore.skips] = 'success'
+        if (rankedleScore.success) steps[rankedleScore.skips] = 'success'
 
         return {
             success,
