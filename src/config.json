@@ -1,9 +1,12 @@
 {
     "app": {
-        "port": 3030
-    },
-    "jwt": {
-        "secret": ""
+        "port": 3030,
+        "jwt": {
+            "secret": ""
+        },
+        "cookie": {
+            "secret": ""
+        }
     },
     "discord": {
         "guild_id": "",
@@ -29,5 +32,35 @@
         },
         "username": "",
         "password": ""
+    },
+    "databases": {
+        "website": {
+            "host": "",
+            "port": 3306,
+            "username": "",
+            "password": "",
+            "name": ""
+        },
+        "rankedle": {
+            "host": "",
+            "port": 3306,
+            "username": "",
+            "password": "",
+            "name": ""
+        },
+        "agent": {
+            "host": "",
+            "port": 3306,
+            "username": "",
+            "password": "",
+            "name": ""
+        },
+        "cubestalker": {
+            "host": "",
+            "port": 3306,
+            "username": "",
+            "password": "",
+            "name": ""
+        }
     }
 }
