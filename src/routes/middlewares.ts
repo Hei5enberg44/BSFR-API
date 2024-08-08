@@ -8,7 +8,10 @@ export const authCheck = async (
 ) => {
     try {
         const sessionId = req.cookies.sessionId
-        const token = await Auth.check(sessionId)
+        if (typeof sessionId === 'undefined')
+            throw new AuthNoSessionError('Cookie de session invalide')
+
+        const token = await Auth.check(req.unsignCookie(sessionId))
         req.token = token
         done()
     } catch (error) {

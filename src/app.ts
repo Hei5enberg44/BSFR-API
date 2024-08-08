@@ -46,7 +46,10 @@ app.setValidatorCompiler(validatorCompiler)
 app.setSerializerCompiler(serializerCompiler)
 
 // Cookies
-app.register(cookie)
+app.register(cookie, {
+    secret: config.app.cookie.secret,
+    hook: 'onRequest'
+})
 
 // Routes registrations
 app.register(discordRoutes, { prefix: '/discord' })

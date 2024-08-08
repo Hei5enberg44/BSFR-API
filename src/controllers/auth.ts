@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken'
 import crypto from 'node:crypto'
 import { RESTPostOAuth2AccessTokenResult } from 'discord-api-types/v10'
+import { UnsignResult } from '@fastify/cookie'
 
 import { DiscordClient } from './discord.js'
 import { WS_SessionModel } from '../models/website.model.js'
@@ -125,7 +126,7 @@ export class Auth {
             const t = (await new Promise((res, rej) => {
                 jwt.sign(
                     token,
-                    config.jwt.secret,
+                    config.app.jwt.secret,
                     { algorithm: 'HS256' },
                     (err, token) => {
                         if (err) rej(err)
@@ -150,7 +151,7 @@ export class Auth {
     private static async decodeToken(token: string) {
         try {
             const t = await new Promise((res, rej) => {
-                jwt.verify(token, config.jwt.secret, (err, decoded) => {
+                jwt.verify(token, config.app.jwt.secret, (err, decoded) => {
                     if (err) rej(err)
                     if (typeof token === 'undefined')
                         rej(new Error('Impossible de décoder le JWT'))
@@ -238,31 +239,28 @@ export class Auth {
         }
     }
 
-    public static async check(sessionId: string | undefined) {
-        if (typeof sessionId === 'undefined')
+    public static async check(sessionId: UnsignResult) {
+        if (sessionId.valid === false || sessionId.value === null)
             throw new AuthNoSessionError('Cookie de session invalide')
 
         const session = await WS_SessionModel.findOne({
             where: {
-                sessionId
+                sessionId: sessionId.value
             }
         })
 
-        if (!session) {
+        if (!session)
             throw new AuthSessionNotFoundError(
                 'Identifiant de session introuvable',
-                sessionId
+                sessionId.value
             )
-        }
-
-        if (!session.token) {
+        if (!session.token)
             throw new AuthTokenNotFoundError('Token de session invalide')
-        }
 
         const decodedToken = await this.decodeToken(session.token)
 
         if (new Date() > session.expire)
-            return await this.updateToken(sessionId, decodedToken)
+            return await this.updateToken(sessionId.value, decodedToken)
 
         return decodedToken
     }

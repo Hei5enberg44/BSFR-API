@@ -51,21 +51,38 @@ export default async (app: FastifyInstance) => {
                     state
                 )
                 const sessionId = await Auth.register(token)
-                res.send({ sessionId })
+
+                res.setCookie('sessionId', sessionId, {
+                    expires: new Date(Date.now() + 86400 * 30 * 1000),
+                    path: '/',
+                    httpOnly: true,
+                    secure: true,
+                    sameSite: 'lax',
+                    signed: true
+                })
+
+                res.send()
             } catch (error) {
                 throw error
             }
         }
     })
 
+    app.post('/logout', async (req, res) => {
+        res.clearCookie('sessionId')
+        res.send()
+    })
+
     app.get('/@me', async (req, res) => {
         try {
             const sessionId = req.cookies.sessionId
-            if (!sessionId) throw new Error('Cookies invalides')
-
-            const token = await Auth.check(sessionId)
-            const user = await DiscordClient.getUserData(token)
-            res.send(user)
+            if (sessionId) {
+                const token = await Auth.check(req.unsignCookie(sessionId))
+                const user = await DiscordClient.getUserData(token)
+                res.send(user)
+            } else {
+                res.send(null)
+            }
         } catch (error) {
             if (error instanceof AuthError) {
                 res.status(401).send({ message: error.message })
