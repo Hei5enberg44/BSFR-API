@@ -11,7 +11,7 @@ import { RESTPostOAuth2AccessTokenResult } from 'discord-api-types/v10'
 import config from './config.json' assert { type: 'json' }
 
 // Routes
-import discordRoutes from './routes/discord.js'
+import userRoutes from './routes/user.js'
 import mapRoutes from './routes/map.js'
 import youtubeRoutes from './routes/youtube.js'
 import rankedleRoutes from './routes/rankedle.js'
@@ -52,7 +52,7 @@ app.register(cookie, {
 })
 
 // Routes registrations
-app.register(discordRoutes, { prefix: '/discord' })
+app.register(userRoutes, { prefix: '/user' })
 app.register(mapRoutes, { prefix: '/map' })
 app.register(youtubeRoutes, { prefix: '/youtube' })
 app.register(rankedleRoutes, { prefix: '/rankedle' })

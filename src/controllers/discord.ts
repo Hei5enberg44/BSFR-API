@@ -4,6 +4,7 @@ import {
     CDNRoutes,
     APIUser,
     APIGuildMember,
+    APIRole,
     RESTPostOAuth2AccessTokenResult,
     ImageFormat,
     DefaultUserAvatarAssets
@@ -375,6 +376,41 @@ export class DiscordClient {
             }
             throw new DiscordClientError(
                 'Récupération des membres de la guild impossible'
+            )
+        }
+    }
+
+    public static async getGuildRoles(): Promise<APIRole[]> {
+        const cachedRoles = Cache.getRoles()
+        if (cachedRoles) return cachedRoles
+
+        try {
+            const rest = new REST().setToken(config.discord.bot_token)
+            const roles = (await rest.get(
+                Routes.guildRoles(config.discord.guild_id)
+            )) as APIRole[]
+            return Cache.setRoles(roles)
+        } catch (error) {
+            if (error instanceof DiscordAPIError) {
+                Logger.log('Discord', 'ERROR', `${error.message}`)
+            } else if (error instanceof RateLimitError) {
+                Logger.log(
+                    'Discord',
+                    'ERROR',
+                    `${error.message} (url: ${error.url}), nouvel essai dans ${error.retryAfter}ms.`
+                )
+                try {
+                    return await this.retry(this.getGuildRoles, [], error, 1)
+                } catch (error) {
+                    Logger.log(
+                        'Discord',
+                        'ERROR',
+                        `Toutes les tentatives ont échoué.`
+                    )
+                }
+            }
+            throw new DiscordClientError(
+                'Récupération des rôles de la guild impossible'
             )
         }
     }

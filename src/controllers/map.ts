@@ -1,11 +1,11 @@
 import { DiscordClient } from './discord.js'
-import { A_CitieModel } from '../models/agent.model.js'
+import { A_CityModel } from '../models/agent.model.js'
 
 export class InteractiveMap {
     public static async getMembersCity() {
         const membersCity = []
 
-        const cities = await A_CitieModel.findAll({ raw: true })
+        const cities = await A_CityModel.findAll({ raw: true })
 
         for (const city of cities) {
             const memberId = city.memberId

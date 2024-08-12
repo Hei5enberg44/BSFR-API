@@ -1,5 +1,5 @@
 import NodeCache from 'node-cache'
-import { APIUser, APIGuildMember } from 'discord-api-types/v10'
+import { APIUser, APIGuildMember, APIRole } from 'discord-api-types/v10'
 
 const cache = new NodeCache({ stdTTL: 3600 })
 
@@ -93,5 +93,14 @@ export class Cache {
         })
         cache.set('members', cachedMembers)
         return members
+    }
+
+    public static getRoles(): APIRole[] | undefined {
+        return cache.get('roles')
+    }
+
+    public static setRoles(roles: APIRole[]): APIRole[] {
+        cache.set('roles', roles)
+        return roles
     }
 }

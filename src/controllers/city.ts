@@ -1,17 +1,7 @@
 import { OpenDataSoftAPI, DatasetRecordsQueryParams } from './opendatasoft.js'
-import { A_CitieModel } from '../models/agent.model.js'
 
 export class City {
-    /**
-     * Récupère les villes d'origine des membres du serveur Discord
-     * @returns {Promise<Array<{memberId: string, pays: string, commune: string, coordonnees_gps: string}>>} liste des villes
-     */
-    static async get() {
-        const cities = await A_CitieModel.findAll({
-            raw: true
-        })
-        return cities
-    }
+    private static dataset = 'geonames-all-cities-with-a-population-500'
 
     static async getCityList(cityName: string) {
         const params: DatasetRecordsQueryParams = {
@@ -23,7 +13,7 @@ export class City {
             limit: 50
         }
         const cities = await OpenDataSoftAPI.getDatasetRecords(
-            'geonames-all-cities-with-a-population-500',
+            this.dataset,
             params
         )
         return cities.results.map((r) => {
@@ -44,7 +34,7 @@ export class City {
             limit: 50
         }
         const cities = await OpenDataSoftAPI.getDatasetRecords(
-            'geonames-all-cities-with-a-population-500',
+            this.dataset,
             params
         )
         return cities.results

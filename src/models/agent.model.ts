@@ -6,7 +6,7 @@ import {
     InferCreationAttributes,
     CreationOptional
 } from 'sequelize'
-import { AgentSettingData } from '../controllers/settings.js'
+import { AgentSettingData } from '../controllers/agent.js'
 import config from '../config.json' assert { type: 'json' }
 
 const sequelizeAgent = new Sequelize(
@@ -99,10 +99,10 @@ const A_BirthdayMessageModel = sequelizeAgent.define<A_BirthdayMessageModel>(
     }
 )
 
-interface A_CitieModel
+interface A_CityModel
     extends Model<
-        InferAttributes<A_CitieModel>,
-        InferCreationAttributes<A_CitieModel>
+        InferAttributes<A_CityModel>,
+        InferCreationAttributes<A_CityModel>
     > {
     id: CreationOptional<number>
     memberId: string
@@ -111,7 +111,7 @@ interface A_CitieModel
     coordonnees_gps: string
 }
 
-const A_CitieModel = sequelizeAgent.define<A_CitieModel>('cities', {
+const A_CityModel = sequelizeAgent.define<A_CityModel>('cities', {
     id: {
         type: DataTypes.INTEGER(),
         autoIncrement: true,
@@ -295,7 +295,7 @@ export {
     A_BanModel,
     A_BirthdayModel,
     A_BirthdayMessageModel,
-    A_CitieModel,
+    A_CityModel,
     A_MaliciousURLModel,
     A_MuteModel,
     A_RoleModel,
