@@ -2,9 +2,11 @@ import { REST, DiscordAPIError, RateLimitError } from '@discordjs/rest'
 import {
     Routes,
     CDNRoutes,
+    Snowflake,
     APIUser,
     APIGuildMember,
     APIRole,
+    GatewayVoiceState,
     RESTPostOAuth2AccessTokenResult,
     ImageFormat,
     DefaultUserAvatarAssets
@@ -29,6 +31,16 @@ export interface UserData {
     avatarURL: string
     isAdmin: boolean
     isBSFR: boolean
+}
+
+export interface ModifyGuildMemberPayload {
+    nick?: string | null
+    roles?: Snowflake[] | null
+    mute?: boolean | null
+    deaf?: boolean | null
+    channel_id?: Snowflake | null
+    communication_disabled_until?: string | null
+    flags?: number | null
 }
 
 export class DiscordClient {
@@ -411,6 +423,77 @@ export class DiscordClient {
             }
             throw new DiscordClientError(
                 'Récupération des rôles de la guild impossible'
+            )
+        }
+    }
+
+    public static async getUserVoiceState(userId: string): Promise<GatewayVoiceState | undefined> {
+        try {
+            const rest = new REST().setToken(config.discord.bot_token)
+            const voiceState = (await rest.get(
+                Routes.guildVoiceState(config.discord.guild_id, userId)
+            )) as GatewayVoiceState
+            return voiceState
+        } catch (error) {
+            if (error instanceof DiscordAPIError) {
+                if(error.code === 10065) {
+                    return undefined
+                } else {
+                    Logger.log('Discord', 'ERROR', `${error.message}`)
+                }
+            } else if (error instanceof RateLimitError) {
+                Logger.log(
+                    'Discord',
+                    'ERROR',
+                    `${error.message} (url: ${error.url}), nouvel essai dans ${error.retryAfter}ms.`
+                )
+                try {
+                    return await this.retry(this.getUserVoiceState, [userId], error, 1)
+                } catch (error) {
+                    Logger.log(
+                        'Discord',
+                        'ERROR',
+                        `Toutes les tentatives ont échoué.`
+                    )
+                }
+            }
+            throw new DiscordClientError(
+                'Récupération de l\'état de la connexion vocale de l\'utilisateur impossible'
+            )
+        }
+    }
+
+    public static async modifyGuildMember(memberId: string, payload: ModifyGuildMemberPayload): Promise<APIGuildMember> {
+        try {
+            const rest = new REST().setToken(config.discord.bot_token)
+            const member = (await rest.patch(
+                Routes.guildMember(config.discord.guild_id, memberId),
+                {
+                    body: payload
+                }
+            )) as APIGuildMember
+            return Cache.setMember(memberId, member)
+        } catch (error) {
+            if (error instanceof DiscordAPIError) {
+                Logger.log('Discord', 'ERROR', `${error.message}`)
+            } else if (error instanceof RateLimitError) {
+                Logger.log(
+                    'Discord',
+                    'ERROR',
+                    `${error.message} (url: ${error.url}), nouvel essai dans ${error.retryAfter}ms.`
+                )
+                try {
+                    return await this.retry(this.modifyGuildMember, [memberId, payload], error, 1)
+                } catch (error) {
+                    Logger.log(
+                        'Discord',
+                        'ERROR',
+                        `Toutes les tentatives ont échoué.`
+                    )
+                }
+            }
+            throw new DiscordClientError(
+                'Mise à jour du membre de la guild impossible'
             )
         }
     }

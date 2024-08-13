@@ -150,8 +150,38 @@ export default async (app: FastifyInstance) => {
         handler: async (req, res) => {
             try {
                 const user = await DiscordClient.getCurrentUser(req.token)
-                const roles = await Settings.getMemberRoles(user.id)
+                const roles = await Settings.getRoles(user.id)
                 res.send(roles)
+            } catch (error) {
+                if (error instanceof SettingsError) {
+                    res.status(500).send({ message: error.message })
+                } else {
+                    throw error
+                }
+            }
+        }
+    })
+
+    app.withTypeProvider<ZodTypeProvider>().route({
+        method: 'POST',
+        url: '/setRoles',
+        schema: {
+            body: z.object({
+                roles: z.array(z.string())
+            })
+        },
+        onRequest: authCheck,
+        handler: async (req, res) => {
+            try {
+                const { roles } = req.body
+                const user = await DiscordClient.getCurrentUser(req.token)
+                await Settings.setRoles(user.id, roles)
+                Logger.log(
+                    'Settings',
+                    'INFO',
+                    `L'utilisateur ${user.username} a mis à jour ses rôles`
+                )
+                res.send()
             } catch (error) {
                 if (error instanceof SettingsError) {
                     res.status(500).send({ message: error.message })
@@ -237,6 +267,55 @@ export default async (app: FastifyInstance) => {
                 const result =
                     search.length >= 3 ? await Settings.searchCity(search) : []
                 res.send(result)
+            } catch (error) {
+                if (error instanceof SettingsError) {
+                    res.status(500).send({ message: error.message })
+                } else {
+                    throw error
+                }
+            }
+        }
+    })
+
+    app.route({
+        method: 'GET',
+        url: '/getTwitchChannel',
+        onRequest: authCheck,
+        handler: async (req, res) => {
+            try {
+                const user = await DiscordClient.getCurrentUser(req.token)
+                const twitchChannel = await Settings.getTwitchChannel(user.id)
+                res.send(twitchChannel)
+            } catch (error) {
+                if (error instanceof SettingsError) {
+                    res.status(500).send({ message: error.message })
+                } else {
+                    throw error
+                }
+            }
+        }
+    })
+
+    app.withTypeProvider<ZodTypeProvider>().route({
+        method: 'POST',
+        url: '/setTwitchChannel',
+        schema: {
+            body: z.object({
+                channelName: z.nullable(z.string())
+            })
+        },
+        onRequest: authCheck,
+        handler: async (req, res) => {
+            try {
+                const { channelName } = req.body
+                const user = await DiscordClient.getCurrentUser(req.token)
+                await Settings.setTwitchChannel(user.id, channelName)
+                Logger.log(
+                    'Settings',
+                    'INFO',
+                    `L'utilisateur ${user.username} a mis à jour sa chaîne Twitch`
+                )
+                res.send()
             } catch (error) {
                 if (error instanceof SettingsError) {
                     res.status(500).send({ message: error.message })

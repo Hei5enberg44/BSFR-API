@@ -3,13 +3,15 @@ import {
     A_BirthdayModel,
     A_RoleModel,
     A_RolesCategorieModel,
-    A_CityModel
+    A_CityModel,
+    A_TwitchModel
 } from '../models/agent.model.js'
 import { DiscordClient } from './discord.js'
 import { City } from './city.js'
 
 interface RoleModelWithCategoryName {
     id: number
+    categoryId: number
     name: string
     multiple: boolean
     categoryName: string
@@ -71,7 +73,7 @@ export class Settings {
         }
     }
 
-    static async getMemberRoles(memberId: string) {
+    static async getRoles(memberId: string) {
         const member = await DiscordClient.getGuildMember(memberId)
         if (!member) return []
 
@@ -129,6 +131,57 @@ export class Settings {
         return userRoleList
     }
 
+    static async setRoles(memberId: string, roles: string[]) {
+        const member = await DiscordClient.getGuildMember(memberId)
+        if (!member) throw new SettingsError('Membre Discord introuvable')
+
+        const guildRoles = await DiscordClient.getGuildRoles()
+        const roleList = (await A_RoleModel.findAll({
+            include: [
+                {
+                    model: A_RolesCategorieModel,
+                    attributes: []
+                }
+            ],
+            attributes: [
+                'id',
+                'categoryId',
+                'name',
+                'multiple',
+                [Sequelize.literal('`roles_category`.`name`'), 'categoryName']
+            ],
+            raw: true
+        })) as unknown as RoleModelWithCategoryName[]
+        const assignableRoles = guildRoles.filter(gr => roleList.find(rl => rl.name === gr.name))
+        const currentUserRoles = member.roles.filter(ur => !assignableRoles.find(ar => ar.id === ur))
+
+        const newUserRoles = assignableRoles.filter(ar => {
+            return roles.find(r => r === ar.name)
+        })
+
+        const check: RoleModelWithCategoryName[] = []
+        for(const role of newUserRoles) {
+            const _role = roleList.find(r => r.name === role.name)
+            if(typeof _role !== 'undefined') {
+                if(!_role.multiple && check.find(c => c.multiple === _role.multiple && c.categoryId === _role.categoryId)) {
+                    throw new SettingsError(`Vous pouvez vous assigner qu'un seul rôle pour la catégorie « ${_role.categoryName} »`)
+                } else {
+                    check.push(_role)
+                }
+            } else {
+                throw new SettingsError('Impossible de mettre à jour les rôles.')
+            }
+        }
+
+        const updatedRoles = currentUserRoles.concat(newUserRoles.map(nur => nur.id))
+
+        if(updatedRoles.length > 0) {
+            await DiscordClient.modifyGuildMember(member.user.id, {
+                roles: updatedRoles
+            })
+        }
+    }
+
     static async getCity(memberId: string) {
         const city = await A_CityModel.findOne({
             where: { memberId },
@@ -170,5 +223,46 @@ export class Settings {
     static async searchCity(name: string) {
         const results = name.length >= 3 ? await City.getCityList(name) : []
         return results
+    }
+
+    static async getTwitchChannel(memberId: string) {
+        const twitch = await A_TwitchModel.findOne({
+            where: { memberId },
+            raw: true
+        })
+        return twitch
+            ? {
+                  name: twitch.channelName
+              }
+            : null
+    }
+
+    static async setTwitchChannel(
+        memberId: string,
+        channelName: string | null
+    ) {
+        if (channelName !== null) {
+            const userTwitch = await A_TwitchModel.findOne({
+                where: { memberId }
+            })
+
+            if (!userTwitch) {
+                await A_TwitchModel.create({
+                    memberId,
+                    channelName,
+                    live: false,
+                    messageId: ''
+                })
+            } else {
+                userTwitch.channelName = channelName
+                userTwitch.live = false
+                userTwitch.messageId = ''
+                await userTwitch.save()
+            }
+        } else {
+            await A_TwitchModel.destroy({
+                where: { memberId }
+            })
+        }
     }
 }

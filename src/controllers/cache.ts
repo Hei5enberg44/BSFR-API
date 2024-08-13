@@ -67,13 +67,13 @@ export class Cache {
 
     public static setMember(
         userId: string,
-        member: APIGuildMember | undefined
-    ): APIGuildMember | null {
+        member: APIGuildMember
+    ): APIGuildMember {
         cache.set('members', {
             ...(cache.get('members') as CachedMembers),
-            [userId]: member ?? null
+            [userId]: member
         })
-        return member ?? null
+        return member
     }
 
     public static getMembers(): APIGuildMember[] | undefined {
