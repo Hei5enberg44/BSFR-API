@@ -31,11 +31,11 @@
         "@types/fluent-ffmpeg": "^2.1.25",
         "@types/jsonwebtoken": "^9.0.6",
         "@types/mmmagic": "^0.4.33",
-        "@types/node": "^20.14.10",
+        "@types/node": "^22.2.0",
         "@types/tmp": "^0.2.6",
         "@types/yauzl": "^2.10.3",
         "ts-node": "^10.9.2",
-        "typescript": "^5.5.3"
+        "typescript": "^5.5.4"
     },
     "dependencies": {
         "@discordjs/rest": "^2.3.0",
