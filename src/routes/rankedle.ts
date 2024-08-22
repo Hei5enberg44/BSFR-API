@@ -2,7 +2,6 @@ import { FastifyInstance } from 'fastify'
 import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import z from 'zod'
 
-import { DiscordClient } from '../controllers/discord.js'
 import { authCheck } from './middlewares.js'
 
 import { Rankedle } from '../controllers/rankedle.js'
@@ -13,10 +12,10 @@ export default async (app: FastifyInstance) => {
         url: '/current',
         onRequest: authCheck,
         handler: async (req, res) => {
-            const user = await DiscordClient.getUserData(req.token)
+            const userData = req.userData
             const current = await Rankedle.getCurrentRankedle()
             const result = current
-                ? await Rankedle.getResult(current, user.id)
+                ? await Rankedle.getResult(current, userData.id)
                 : null
             await new Promise((res) => setTimeout(res, 1000))
             res.send(current)
@@ -28,8 +27,8 @@ export default async (app: FastifyInstance) => {
         url: '/play',
         onRequest: authCheck,
         handler: async (req, res) => {
-            const user = await DiscordClient.getUserData(req.token)
-            const { head, file } = await Rankedle.playRequest(user)
+            const userData = req.userData
+            const { head, file } = await Rankedle.playRequest(userData.id)
             res.raw.writeHead(200, head)
             file.pipe(res.raw)
         }
@@ -40,7 +39,7 @@ export default async (app: FastifyInstance) => {
         url: '/ranking',
         onRequest: authCheck,
         handler: async (req, res) => {
-            const ranking = await Rankedle.getRanking()
+            const ranking = await Rankedle.getRanking(app.discord.guild)
             res.send(ranking)
         }
     })
@@ -50,8 +49,8 @@ export default async (app: FastifyInstance) => {
         url: '/stats',
         onRequest: authCheck,
         handler: async (req, res) => {
-            const user = await DiscordClient.getCurrentUser(req.token)
-            const stats = await Rankedle.getUserStats(user.id)
+            const userData = req.userData
+            const stats = await Rankedle.getUserStats(userData.id)
             res.send(stats)
         }
     })
@@ -68,9 +67,9 @@ export default async (app: FastifyInstance) => {
         onRequest: authCheck,
         handler: async (req, res) => {
             const { first, rows } = req.query
-            const user = await DiscordClient.getCurrentUser(req.token)
+            const userData = req.userData
             const history = await Rankedle.getRankedleHistory(
-                user.id,
+                userData.id,
                 first,
                 rows
             )

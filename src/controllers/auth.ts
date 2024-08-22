@@ -68,18 +68,18 @@ export class AuthTokenNotFoundError extends AuthError {
 }
 
 export class AuthSignTokenError extends AuthError {
-    token: RESTPostOAuth2AccessTokenResult
+    userId: string
 
-    constructor(message: string, token: RESTPostOAuth2AccessTokenResult) {
+    constructor(message: string, userId: string) {
         super(message)
-        this.token = token
+        this.userId = userId
         this.name = 'AuthSignTokenError'
         Error.captureStackTrace(this, this.constructor)
 
         Logger.log(
             'Auth',
             'ERROR',
-            `${message} (token: ${JSON.stringify(token)})`
+            `${message} (userId: ${JSON.stringify(userId)})`
         )
     }
 }
@@ -97,35 +97,12 @@ export class AuthVerifyTokenError extends AuthError {
     }
 }
 
-export class AuthRefreshTokenError extends AuthError {
-    sessionId: string
-    token: RESTPostOAuth2AccessTokenResult
-
-    constructor(
-        message: string,
-        sessionId: string,
-        token: RESTPostOAuth2AccessTokenResult
-    ) {
-        super(message)
-        this.sessionId = sessionId
-        this.token = token
-        this.name = 'AuthRefreshTokenError'
-        Error.captureStackTrace(this, this.constructor)
-
-        Logger.log(
-            'Auth',
-            'ERROR',
-            `${message} (sessionId: ${sessionId}, token: ${JSON.stringify(token)})`
-        )
-    }
-}
-
 export class Auth {
-    private static async setToken(token: RESTPostOAuth2AccessTokenResult) {
+    private static async setToken(userId: string) {
         try {
             const t = (await new Promise((res, rej) => {
                 jwt.sign(
-                    token,
+                    userId,
                     config.app.jwt.secret,
                     { algorithm: 'HS256' },
                     (err, token) => {
@@ -139,11 +116,11 @@ export class Auth {
             return t
         } catch (error) {
             if (error instanceof Error)
-                throw new AuthSignTokenError(error.message, token)
+                throw new AuthSignTokenError(error.message, userId)
             else
                 throw new AuthSignTokenError(
                     'Impossible de créer le JWT',
-                    token
+                    userId
                 )
         }
     }
@@ -158,7 +135,7 @@ export class Auth {
                     else res(decoded)
                 })
             })
-            return t as RESTPostOAuth2AccessTokenResult
+            return t as string
         } catch (error) {
             if (error instanceof Error)
                 throw new AuthVerifyTokenError(error.message, token)
@@ -170,47 +147,6 @@ export class Auth {
         }
     }
 
-    private static async updateToken(
-        sessionId: string,
-        token: RESTPostOAuth2AccessTokenResult
-    ) {
-        try {
-            const newToken = await DiscordClient.oauth2TokenRefresh(token)
-
-            const currentUser = await DiscordClient.getCurrentUser(newToken)
-
-            const userToken = await this.setToken(newToken)
-            const tokenExpire =
-                Math.floor(Date.now() / 1000) + token.expires_in - 300
-
-            await WS_SessionModel.update(
-                {
-                    token: userToken,
-                    expire: new Date(tokenExpire * 1000)
-                },
-                {
-                    where: {
-                        sessionId
-                    }
-                }
-            )
-
-            Logger.log(
-                'Auth',
-                'INFO',
-                `Le token de l'utilisateur ${currentUser.username} a été actualisé`
-            )
-
-            return newToken
-        } catch (error) {
-            throw new AuthRefreshTokenError(
-                "Impossible d'actualiser le token de l'utilisateur",
-                sessionId,
-                token
-            )
-        }
-    }
-
     public static async register(
         token: RESTPostOAuth2AccessTokenResult
     ): Promise<string> {
@@ -218,14 +154,11 @@ export class Auth {
             const currentUser = await DiscordClient.getCurrentUser(token)
 
             const sessionId = crypto.randomUUID()
-            const userToken = await this.setToken(token)
-            const tokenExpire =
-                Math.floor(Date.now() / 1000) + token.expires_in - 300
+            const userToken = await this.setToken(currentUser.id)
 
             await WS_SessionModel.create({
                 sessionId,
-                token: userToken,
-                expire: new Date(tokenExpire * 1000)
+                token: userToken
             })
 
             Logger.log(
@@ -257,11 +190,7 @@ export class Auth {
         if (!session.token)
             throw new AuthTokenNotFoundError('Token de session invalide')
 
-        const decodedToken = await this.decodeToken(session.token)
-
-        if (new Date() > session.expire)
-            return await this.updateToken(sessionId.value, decodedToken)
-
-        return decodedToken
+        const userId = await this.decodeToken(session.token)
+        return userId
     }
 }

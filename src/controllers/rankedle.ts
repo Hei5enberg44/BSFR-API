@@ -1,3 +1,4 @@
+import { Guild } from 'discord.js'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'url'
@@ -7,7 +8,6 @@ import ffmpeg from 'fluent-ffmpeg'
 import yauzl from 'yauzl'
 import tmp from 'tmp'
 import { Sequelize, Op } from 'sequelize'
-import { DiscordClient, UserData } from './discord.js'
 import {
     R_RankedleModel,
     R_RankedleMapModel,
@@ -213,7 +213,7 @@ export class Rankedle {
 
                 // Get time range
                 const dataTrimed = await this.getSongMetaData(WEBM_PATH)
-                const duration = Math.floor(dataTrimed.format.duration || 0)
+                const duration = Math.floor(dataTrimed.format.duration ?? 0)
                 const start =
                     duration >= 30
                         ? Math.round(Math.random() * (duration - 30))
@@ -373,12 +373,12 @@ export class Rankedle {
         return blacklist.includes(memberId)
     }
 
-    public static async playRequest(user: UserData) {
+    public static async playRequest(memberId: string) {
         const rankedle = await this.getCurrentRankedle()
         if (!rankedle) throw new Error('No rankedle found')
 
-        const rankedleScore = await this.getUserScore(rankedle.id, user.id)
-        await this.setDateStart(rankedle.id, user.id, rankedleScore)
+        const rankedleScore = await this.getUserScore(rankedle.id, memberId)
+        await this.setDateStart(rankedle.id, memberId, rankedleScore)
 
         const skips = rankedleScore ? rankedleScore.skips : 0
         const fileName = `preview_${skips < 6 && !rankedleScore?.success ? skips : 'full'}.mp3`
@@ -404,13 +404,13 @@ export class Rankedle {
 
     static async setDateStart(
         rankedleId: number,
-        userId: string,
+        memberId: string,
         score: R_RankedleScoreModel | null
     ) {
         if (!score) {
             await R_RankedleScoreModel.create({
-                rankedleId: rankedleId,
-                memberId: userId,
+                rankedleId,
+                memberId,
                 dateStart: new Date(),
                 skips: 0,
                 hint: false
@@ -824,7 +824,7 @@ export class Rankedle {
         return m
     }
 
-    static async getRanking() {
+    static async getRanking(guild: Guild) {
         const seasonId = await this.getCurrentSeason()
         const rankingList = await R_RankedleStatModel.findAll({
             where: { seasonId },
@@ -835,15 +835,18 @@ export class Rankedle {
         let rank = 0
         const ranking: RankedlePlayerRanking[] = []
         for (const player of rankingList) {
-            const member = await DiscordClient.getGuildMember(player.memberId)
+            const member = guild.members.cache.get(player.memberId)
             if (!member) continue
 
             rank =
                 [...ranking].pop()?.points === player.points ? rank : rank + 1
             ranking.push({
                 memberId: player.memberId,
-                name: DiscordClient.getMemberNick(member),
-                avatar: DiscordClient.getUserAvatar(member.user, 80),
+                name: member.displayName,
+                avatar: member.displayAvatarURL({
+                    extension: 'webp',
+                    size: 128
+                }),
                 points: player.points,
                 rank,
                 stats: {
@@ -998,8 +1001,8 @@ export class Rankedle {
     //         globalStats.push({
     //             ...s,
     //             player: {
-    //                 name: DiscordClient.getUserNick(user),
-    //                 avatar: `${DiscordClient.getUserAvatar(user, 80)}`
+    //                 name: DiscordClient.getNickname(user),
+    //                 avatar: `${DiscordClient.getAvatar(user, 80)}`
     //             }
     //         })
     //     }
@@ -1044,8 +1047,8 @@ export class Rankedle {
     //                 seasonStats.push({
     //                     ...s,
     //                     player: {
-    //                         name: DiscordClient.getUserNick(user),
-    //                         avatar: DiscordClient.getUserAvatar(user, 80)
+    //                         name: DiscordClient.getNickname(user),
+    //                         avatar: DiscordClient.getAvatar(user, 80)
     //                     }
     //                 })
     //             }
@@ -1074,8 +1077,8 @@ export class Rankedle {
     //                 scores.push({
     //                     ...s,
     //                     player: {
-    //                         name: user ? DiscordClient.getUserNick(user) : s.memberId,
-    //                         avatar: user ? DiscordClient.getUserAvatar(user, 80) : ''
+    //                         name: user ? DiscordClient.getNickname(user) : s.memberId,
+    //                         avatar: user ? DiscordClient.getAvatar(user, 80) : ''
     //                     }
     //                 })
     //             }
@@ -1157,4 +1160,13 @@ export class Rankedle {
     //         season
     //     }
     // }
+
+    private static async deletePlayer(memberId: string) {
+        await R_RankedleScoreModel.destroy({
+            where: { memberId }
+        })
+        await R_RankedleStatModel.destroy({
+            where: { memberId }
+        })
+    }
 }

@@ -1,18 +1,18 @@
-import { DiscordClient } from './discord.js'
+import { Guild } from 'discord.js'
 import { A_CityModel } from '../models/agent.model.js'
 
 export class InteractiveMap {
-    public static async getMembersCity() {
+    public static async getMembersCity(guild: Guild) {
         const membersCity = []
 
         const cities = await A_CityModel.findAll({ raw: true })
 
         for (const city of cities) {
             const memberId = city.memberId
-            const member = await DiscordClient.getGuildMember(memberId)
+            const member = guild.members.cache.get(memberId)
 
             if (member) {
-                const username = DiscordClient.getMemberNick(member)
+                const username = member.displayName
 
                 const coords = city.coordonnees_gps
                 const countryName = city.pays
@@ -20,7 +20,10 @@ export class InteractiveMap {
 
                 membersCity.push({
                     username,
-                    avatarURL: DiscordClient.getUserAvatar(member.user),
+                    avatarURL: member.displayAvatarURL({
+                        extension: 'webp',
+                        size: 128
+                    }),
                     coords,
                     countryName,
                     cityName

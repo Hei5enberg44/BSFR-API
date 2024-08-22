@@ -67,7 +67,6 @@ interface WS_SessionModel
     id: CreationOptional<number>
     sessionId: string
     token: string
-    expire: Date
 }
 
 const WS_SessionModel = sequelizeWebsite.define<WS_SessionModel>('sessions', {
@@ -80,8 +79,7 @@ const WS_SessionModel = sequelizeWebsite.define<WS_SessionModel>('sessions', {
         type: DataTypes.STRING(255),
         unique: true
     },
-    token: DataTypes.TEXT(),
-    expire: DataTypes.DATE()
+    token: DataTypes.TEXT()
 })
 
 export { WS_RunModel, WS_SessionModel }

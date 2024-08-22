@@ -1,106 +1,59 @@
 import NodeCache from 'node-cache'
-import { APIUser, APIGuildMember, APIRole } from 'discord-api-types/v10'
+import { PlayerData } from './bsleaderboard.js'
 
-const cache = new NodeCache({ stdTTL: 3600 })
+const leaderboardCache = new NodeCache({ stdTTL: 300 })
 
-interface CachedUsers {
-    [key: string]: APIUser | null
-}
-
-interface CachedMembers {
-    [key: string]: APIGuildMember | null
+interface LeaderboardCachedPlayer {
+    leaderboard: 'scoresaber' | 'beatleader'
+    playerId: string
+    playerData: PlayerData
 }
 
 export class Cache {
-    // Discord cache
-    public static getAuthUser(accessToken: string): APIUser | undefined {
-        return cache.get(`user_${accessToken}`)
+    // ScoreSaber & BeatLeade cache
+    public static getPlayerData(
+        leaderboard: 'scoresaber' | 'beatleader',
+        playerId: string
+    ) {
+        const cachedPlayers = leaderboardCache.get('players') as
+            | LeaderboardCachedPlayer[]
+            | undefined
+        if (!cachedPlayers) return undefined
+        const cachedPlayer = cachedPlayers.find(
+            (c) => c.leaderboard === leaderboard && c.playerId === playerId
+        )
+        if (!cachedPlayer) return undefined
+        return cachedPlayer.playerData
     }
 
-    public static setAuthUser(accessToken: string, user: APIUser): APIUser {
-        cache.set(`user_${accessToken}`, user)
-        return user
-    }
-
-    public static getUser(userId: string): APIUser | null | undefined {
-        const cachedUsers = cache.get('users') as CachedUsers
-        return Object.hasOwn(cachedUsers, userId)
-            ? cachedUsers[userId]
-            : undefined
-    }
-
-    public static setUser(
-        userId: string,
-        user: APIUser | undefined
-    ): APIUser | null {
-        cache.set('users', {
-            ...(cache.get('users') as CachedUsers),
-            [userId]: user ?? null
-        })
-        return user ?? null
-    }
-
-    public static getUsers(): APIUser[] | undefined {
-        if (!cache.has('users')) return undefined
-        const users: APIUser[] = []
-        const cachedUsers = cache.get('users') as CachedUsers
-        for (const [, user] of Object.entries(cachedUsers))
-            if (user !== null && typeof user !== 'undefined') users.push(user)
-        return users
-    }
-
-    public static setUsers(users: APIUser[]): APIUser[] {
-        const cachedUsers: CachedUsers = {}
-        users.forEach((u) => {
-            cachedUsers[u.id] = u
-        })
-        cache.set('users', cachedUsers)
-        return users
-    }
-
-    public static getMember(userId: string): APIGuildMember | null | undefined {
-        const cachedMembers = cache.get('members') as CachedMembers
-        return Object.hasOwn(cachedMembers, userId)
-            ? cachedMembers[userId]
-            : undefined
-    }
-
-    public static setMember(
-        userId: string,
-        member: APIGuildMember
-    ): APIGuildMember {
-        cache.set('members', {
-            ...(cache.get('members') as CachedMembers),
-            [userId]: member
-        })
-        return member
-    }
-
-    public static getMembers(): APIGuildMember[] | undefined {
-        if (!cache.has('members')) return undefined
-        const members: APIGuildMember[] = []
-        const cachedMembers = cache.get('members') as CachedMembers
-        for (const [, member] of Object.entries(cachedMembers))
-            if (member !== null && typeof member !== 'undefined')
-                members.push(member)
-        return members
-    }
-
-    public static setMembers(members: APIGuildMember[]): APIGuildMember[] {
-        const cachedMembers: CachedMembers = {}
-        members.forEach((m) => {
-            cachedMembers[m.user.id] = m
-        })
-        cache.set('members', cachedMembers)
-        return members
-    }
-
-    public static getRoles(): APIRole[] | undefined {
-        return cache.get('roles')
-    }
-
-    public static setRoles(roles: APIRole[]): APIRole[] {
-        cache.set('roles', roles)
-        return roles
+    public static setPlayerData(
+        leaderboard: 'scoresaber' | 'beatleader',
+        playerId: string,
+        playerData: PlayerData
+    ) {
+        const cachedPlayers = leaderboardCache.get('players') as
+            | LeaderboardCachedPlayer[]
+            | undefined
+        if (cachedPlayers) {
+            const players = cachedPlayers.filter(
+                (c) =>
+                    !(c.leaderboard === leaderboard && c.playerId === playerId)
+            )
+            players.push({
+                leaderboard,
+                playerId,
+                playerData
+            })
+            leaderboardCache.set('players', players)
+        } else {
+            leaderboardCache.set('players', [
+                {
+                    leaderboard,
+                    playerId,
+                    playerData
+                }
+            ])
+        }
+        return playerData
     }
 }

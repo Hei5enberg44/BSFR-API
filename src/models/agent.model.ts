@@ -61,7 +61,7 @@ interface A_BirthdayModel
     > {
     id: CreationOptional<number>
     memberId: string
-    date: Date
+    date: string
 }
 
 const A_BirthdayModel = sequelizeAgent.define<A_BirthdayModel>('birthdays', {
@@ -82,7 +82,7 @@ interface A_BirthdayMessageModel
     id: CreationOptional<number>
     message: string
     memberId: string
-    date: Date
+    date: CreationOptional<Date>
 }
 
 const A_BirthdayMessageModel = sequelizeAgent.define<A_BirthdayMessageModel>(
@@ -95,7 +95,10 @@ const A_BirthdayMessageModel = sequelizeAgent.define<A_BirthdayMessageModel>(
         },
         message: DataTypes.TEXT(),
         memberId: DataTypes.STRING(255),
-        date: DataTypes.DATE()
+        date: {
+            type: DataTypes.DATE(),
+            defaultValue: DataTypes.NOW()
+        }
     }
 )
 

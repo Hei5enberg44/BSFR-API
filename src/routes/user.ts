@@ -1,12 +1,16 @@
+import { GuildMember } from 'discord.js'
 import { FastifyInstance } from 'fastify'
 import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import z from 'zod'
+import sharp from 'sharp'
 
-import { DiscordClient } from '../controllers/discord.js'
+import { DiscordClient, DiscordClientError } from '../controllers/discord.js'
 import { Auth, AuthError } from '../controllers/auth.js'
 import { Settings, SettingsError } from '../controllers/settings.js'
-import { authCheck } from './middlewares.js'
+import { MemberCardStatus } from '../controllers/cubestalker.js'
+import { authCheck, requireNitro } from './middlewares.js'
 
+import { Mime } from '../utils/mime.js'
 import Logger from '../utils/logger.js'
 import config from '../config.json' assert { type: 'json' }
 
@@ -79,14 +83,20 @@ export default async (app: FastifyInstance) => {
         try {
             const sessionId = req.cookies.sessionId
             if (sessionId) {
-                const token = await Auth.check(req.unsignCookie(sessionId))
-                const user = await DiscordClient.getUserData(token)
+                const userId = await Auth.check(req.unsignCookie(sessionId))
+                const user = await DiscordClient.getUserData(
+                    app.discord.guild,
+                    userId
+                )
                 res.send(user)
             } else {
                 res.send(null)
             }
         } catch (error) {
-            if (error instanceof AuthError) {
+            if (
+                error instanceof AuthError ||
+                error instanceof DiscordClientError
+            ) {
                 res.status(401).send({ message: error.message })
             } else {
                 throw error
@@ -96,12 +106,12 @@ export default async (app: FastifyInstance) => {
 
     app.withTypeProvider<ZodTypeProvider>().route({
         method: 'GET',
-        url: '/getBirthday',
+        url: '/birthday',
         onRequest: authCheck,
         handler: async (req, res) => {
             try {
-                const user = await DiscordClient.getCurrentUser(req.token)
-                const date = await Settings.getBirthday(user.id)
+                const userData = req.userData
+                const date = await Settings.getBirthday(userData.id)
                 res.send({ date })
             } catch (error) {
                 if (error instanceof SettingsError) {
@@ -115,22 +125,22 @@ export default async (app: FastifyInstance) => {
 
     app.withTypeProvider<ZodTypeProvider>().route({
         method: 'POST',
-        url: '/setBirthday',
+        url: '/birthday',
         schema: {
             body: z.object({
-                date: z.nullable(z.coerce.date())
+                date: z.nullable(z.string())
             })
         },
         onRequest: authCheck,
         handler: async (req, res) => {
             try {
                 const { date } = req.body
-                const user = await DiscordClient.getCurrentUser(req.token)
-                await Settings.setBirthday(user.id, date)
+                const userData = req.userData
+                await Settings.setBirthday(userData.id, date)
                 Logger.log(
                     'Settings',
                     'INFO',
-                    `L'utilisateur ${user.username} a mis à jour sa date de naissance`
+                    `L'utilisateur ${userData.username} a mis à jour sa date de naissance`
                 )
                 res.send()
             } catch (error) {
@@ -145,12 +155,13 @@ export default async (app: FastifyInstance) => {
 
     app.route({
         method: 'GET',
-        url: '/getRoles',
+        url: '/roles',
         onRequest: authCheck,
         handler: async (req, res) => {
             try {
-                const user = await DiscordClient.getCurrentUser(req.token)
-                const roles = await Settings.getRoles(user.id)
+                const userData = req.userData
+                const member = app.discord.guild.members.cache.get(userData.id)
+                const roles = member ? await Settings.getRoles(member) : []
                 res.send(roles)
             } catch (error) {
                 if (error instanceof SettingsError) {
@@ -164,7 +175,7 @@ export default async (app: FastifyInstance) => {
 
     app.withTypeProvider<ZodTypeProvider>().route({
         method: 'POST',
-        url: '/setRoles',
+        url: '/roles',
         schema: {
             body: z.object({
                 roles: z.array(z.string())
@@ -174,13 +185,16 @@ export default async (app: FastifyInstance) => {
         handler: async (req, res) => {
             try {
                 const { roles } = req.body
-                const user = await DiscordClient.getCurrentUser(req.token)
-                await Settings.setRoles(user.id, roles)
-                Logger.log(
-                    'Settings',
-                    'INFO',
-                    `L'utilisateur ${user.username} a mis à jour ses rôles`
-                )
+                const userData = req.userData
+                const member = app.discord.guild.members.cache.get(userData.id)
+                if (member) {
+                    await Settings.setRoles(member, roles)
+                    Logger.log(
+                        'Settings',
+                        'INFO',
+                        `L'utilisateur ${userData.username} a mis à jour ses rôles`
+                    )
+                }
                 res.send()
             } catch (error) {
                 if (error instanceof SettingsError) {
@@ -194,12 +208,12 @@ export default async (app: FastifyInstance) => {
 
     app.route({
         method: 'GET',
-        url: '/getCity',
+        url: '/city',
         onRequest: authCheck,
         handler: async (req, res) => {
             try {
-                const user = await DiscordClient.getCurrentUser(req.token)
-                const city = await Settings.getCity(user.id)
+                const userData = req.userData
+                const city = await Settings.getCity(userData.id)
                 res.send(
                     city
                         ? {
@@ -219,7 +233,7 @@ export default async (app: FastifyInstance) => {
 
     app.withTypeProvider<ZodTypeProvider>().route({
         method: 'POST',
-        url: '/setCity',
+        url: '/city',
         schema: {
             body: z.object({
                 city: z.nullable(
@@ -234,12 +248,12 @@ export default async (app: FastifyInstance) => {
         handler: async (req, res) => {
             try {
                 const { city } = req.body
-                const user = await DiscordClient.getCurrentUser(req.token)
-                await Settings.setCity(user.id, city)
+                const userData = req.userData
+                await Settings.setCity(userData.id, city)
                 Logger.log(
                     'Settings',
                     'INFO',
-                    `L'utilisateur ${user.username} a mis à jour sa ville`
+                    `L'utilisateur ${userData.username} a mis à jour sa ville`
                 )
                 res.send()
             } catch (error) {
@@ -279,12 +293,14 @@ export default async (app: FastifyInstance) => {
 
     app.route({
         method: 'GET',
-        url: '/getTwitchChannel',
+        url: '/twitchChannel',
         onRequest: authCheck,
         handler: async (req, res) => {
             try {
-                const user = await DiscordClient.getCurrentUser(req.token)
-                const twitchChannel = await Settings.getTwitchChannel(user.id)
+                const userData = req.userData
+                const twitchChannel = await Settings.getTwitchChannel(
+                    userData.id
+                )
                 res.send(twitchChannel)
             } catch (error) {
                 if (error instanceof SettingsError) {
@@ -298,7 +314,7 @@ export default async (app: FastifyInstance) => {
 
     app.withTypeProvider<ZodTypeProvider>().route({
         method: 'POST',
-        url: '/setTwitchChannel',
+        url: '/twitchChannel',
         schema: {
             body: z.object({
                 channelName: z.nullable(z.string())
@@ -308,12 +324,157 @@ export default async (app: FastifyInstance) => {
         handler: async (req, res) => {
             try {
                 const { channelName } = req.body
-                const user = await DiscordClient.getCurrentUser(req.token)
-                await Settings.setTwitchChannel(user.id, channelName)
+                const userData = req.userData
+                await Settings.setTwitchChannel(userData.id, channelName)
                 Logger.log(
                     'Settings',
                     'INFO',
-                    `L'utilisateur ${user.username} a mis à jour sa chaîne Twitch`
+                    `L'utilisateur ${userData.username} a mis à jour sa chaîne Twitch`
+                )
+                res.send()
+            } catch (error) {
+                if (error instanceof SettingsError) {
+                    res.status(500).send({ message: error.message })
+                } else {
+                    throw error
+                }
+            }
+        }
+    })
+
+    app.withTypeProvider<ZodTypeProvider>().route({
+        method: 'GET',
+        url: '/cardPreview',
+        schema: {
+            querystring: z.object({
+                memberId: z.string().optional()
+            })
+        },
+        onRequest: [authCheck, requireNitro],
+        handler: async (req, res) => {
+            try {
+                const userData = req.userData
+                const memberId = req.query.memberId ?? userData.id
+                const member = app.discord.guild.members.cache.get(
+                    memberId
+                ) as GuildMember
+                const card = await Settings.getCubeStalkerCard(member)
+                res.send(card)
+            } catch (error) {
+                if (error instanceof SettingsError) {
+                    res.status(500).send({ message: error.message })
+                } else {
+                    throw error
+                }
+            }
+        }
+    })
+
+    app.withTypeProvider<ZodTypeProvider>().route({
+        method: 'POST',
+        url: '/cardPreview',
+        schema: {
+            body: z.object({
+                memberCardImage: z.instanceof(Buffer)
+            })
+        },
+        attachValidation: true,
+        onRequest: [authCheck, requireNitro],
+        handler: async (req, res) => {
+            try {
+                const userData = req.userData
+                const member = app.discord.guild.members.cache.get(
+                    userData.id
+                ) as GuildMember
+
+                if (req.validationError)
+                    throw new Error('Type de fichier invalide')
+
+                let memberCardImage = req.body.memberCardImage
+                const fileType = await Mime.getMimeType(memberCardImage)
+
+                if (!fileType?.match(/^image\/(jpe?g|png|webp)$/))
+                    throw new Error(
+                        'Type de fichier invalide, types de fichier autorisés: .jpg,.png,.webp'
+                    )
+
+                if (memberCardImage.byteLength > 5242880)
+                    throw new Error(
+                        'Fichier trop lourd, la taille maximale autorisée est de 5 Mo'
+                    )
+
+                if (fileType !== 'image/png')
+                    memberCardImage = await sharp(memberCardImage)
+                        .png()
+                        .resize(1900)
+                        .toBuffer()
+
+                const card = await Settings.getCubeStalkerCard(
+                    member,
+                    memberCardImage
+                )
+                res.send(card)
+            } catch (error) {
+                if (error instanceof SettingsError) {
+                    res.status(500).send({ message: error.message })
+                } else {
+                    throw error
+                }
+            }
+        }
+    })
+
+    app.route({
+        method: 'POST',
+        url: '/card',
+        onRequest: [authCheck, requireNitro],
+        handler: async (req, res) => {
+            try {
+                const userData = req.userData
+                const status = userData.isAdmin
+                    ? MemberCardStatus.Approved
+                    : MemberCardStatus.Pending
+                const cardStatus = await Settings.getCardStatus(userData.id)
+
+                if (cardStatus && cardStatus === MemberCardStatus.Pending) {
+                    const cardId = await Settings.updateCardStatus(
+                        userData.id,
+                        status
+                    )
+                    if (cardId && !userData.isAdmin) {
+                        const url = await Settings.sendCardRequest(
+                            app.discord.guild,
+                            userData.id,
+                            cardId
+                        )
+                        Logger.log(
+                            'SettingsCardImage',
+                            'INFO',
+                            `Nouvelle demande d\'approbation reçue pour une image de carte Cube-Stalker: ${url}`
+                        )
+                    }
+                }
+                res.send()
+            } catch (error) {
+                if (error instanceof SettingsError) {
+                    res.status(500).send({ message: error.message })
+                } else {
+                    throw error
+                }
+            }
+        }
+    })
+
+    app.route({
+        method: 'DELETE',
+        url: '/card',
+        onRequest: [authCheck, requireNitro],
+        handler: async (req, res) => {
+            try {
+                const userData = req.userData
+                await Settings.updateCardStatus(
+                    userData.id,
+                    MemberCardStatus.Preview
                 )
                 res.send()
             } catch (error) {

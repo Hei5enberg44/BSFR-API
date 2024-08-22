@@ -8,7 +8,9 @@ export default async (app: FastifyInstance) => {
         url: '/membersCity',
         onRequest: authCheck,
         handler: async (req, res) => {
-            const cities = await InteractiveMap.getMembersCity()
+            const cities = await InteractiveMap.getMembersCity(
+                app.discord.guild
+            )
             res.send(cities)
         }
     })

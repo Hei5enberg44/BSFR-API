@@ -1,18 +1,10 @@
+import { Guild } from 'discord.js'
 import { REST, DiscordAPIError, RateLimitError } from '@discordjs/rest'
 import {
-    Routes,
-    CDNRoutes,
-    Snowflake,
     APIUser,
-    APIGuildMember,
-    APIRole,
-    GatewayVoiceState,
     RESTPostOAuth2AccessTokenResult,
-    ImageFormat,
-    DefaultUserAvatarAssets
+    Routes
 } from 'discord-api-types/v10'
-
-import { Cache } from './cache.js'
 
 import Logger from '../utils/logger.js'
 import config from '../config.json' assert { type: 'json' }
@@ -28,19 +20,11 @@ export class DiscordClientError extends Error {
 export interface UserData {
     id: string
     username: string
+    displayName: string
     avatarURL: string
     isAdmin: boolean
     isBSFR: boolean
-}
-
-export interface ModifyGuildMemberPayload {
-    nick?: string | null
-    roles?: Snowflake[] | null
-    mute?: boolean | null
-    deaf?: boolean | null
-    channel_id?: Snowflake | null
-    communication_disabled_until?: string | null
-    flags?: number | null
+    isNitroBooster: boolean
 }
 
 export class DiscordClient {
@@ -73,7 +57,7 @@ export class DiscordClient {
         const options = new URLSearchParams({
             response_type: 'code',
             client_id: config.discord.client_id,
-            scope: 'identify guilds.members.read',
+            scope: 'identify',
             redirect_uri: config.discord.redirect_uri,
             prompt: 'none'
         }).toString()
@@ -131,62 +115,9 @@ export class DiscordClient {
         }
     }
 
-    public static async oauth2TokenRefresh(
-        token: RESTPostOAuth2AccessTokenResult
-    ): Promise<RESTPostOAuth2AccessTokenResult> {
-        try {
-            const rest = new REST()
-            const refreshedToken = (await rest.post(
-                Routes.oauth2TokenExchange(),
-                {
-                    auth: false,
-                    body: new URLSearchParams({
-                        client_id: config.discord.client_id,
-                        client_secret: config.discord.client_secret,
-                        grant_type: 'refresh_token',
-                        refresh_token: token.refresh_token
-                    }),
-                    passThroughBody: true,
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    }
-                }
-            )) as RESTPostOAuth2AccessTokenResult
-            return refreshedToken
-        } catch (error) {
-            if (error instanceof DiscordAPIError) {
-                Logger.log('Discord', 'ERROR', `${error.message}`)
-            } else if (error instanceof RateLimitError) {
-                Logger.log(
-                    'Discord',
-                    'ERROR',
-                    `${error.message} (url: ${error.url}), nouvel essai dans ${error.retryAfter}ms.`
-                )
-                try {
-                    return await this.retry(
-                        this.oauth2TokenRefresh,
-                        [token],
-                        error,
-                        1
-                    )
-                } catch (error) {
-                    Logger.log(
-                        'Discord',
-                        'ERROR',
-                        `Toutes les tentatives ont échoué.`
-                    )
-                }
-            }
-            throw new DiscordClientError('Actualisation du token impossible')
-        }
-    }
-
     public static async getCurrentUser(
         token: RESTPostOAuth2AccessTokenResult
     ): Promise<APIUser> {
-        const cachedUser = Cache.getAuthUser(token.access_token)
-        if (cachedUser) return cachedUser
-
         try {
             const rest = new REST().setToken(token.access_token)
             const user = (await rest.get(Routes.user('@me'), {
@@ -195,10 +126,13 @@ export class DiscordClient {
                     Authorization: token.access_token
                 }
             })) as APIUser
-            return Cache.setAuthUser(token.access_token, user)
+            return user
         } catch (error) {
             if (error instanceof DiscordAPIError) {
                 Logger.log('Discord', 'ERROR', `${error.message}`)
+                if (error.status === 401) {
+                    throw new DiscordClientError(error.message)
+                }
             } else if (error instanceof RateLimitError) {
                 Logger.log(
                     'Discord',
@@ -226,275 +160,45 @@ export class DiscordClient {
         }
     }
 
-    public static async getUser(userId: string): Promise<APIUser | null> {
-        await this.getGuildMembers()
-
-        const cachedMember = Cache.getMember(userId)
-        const cachedUser = cachedMember
-            ? cachedMember.user
-            : Cache.getUser(userId)
-        if (typeof cachedUser !== 'undefined') return cachedUser
-
-        try {
-            const rest = new REST().setToken(config.discord.bot_token)
-            const user = (await rest.get(Routes.user(userId))) as APIUser
-            return Cache.setUser(userId, user)
-        } catch (error) {
-            if (error instanceof DiscordAPIError) {
-                if (error.code === 10007) {
-                    // Unknown Member
-                    return Cache.setUser(userId, undefined)
-                } else {
-                    Logger.log('Discord', 'ERROR', `${error.message}`)
-                }
-            } else if (error instanceof RateLimitError) {
-                Logger.log(
-                    'Discord',
-                    'ERROR',
-                    `${error.message} (url: ${error.url}), nouvel essai dans ${error.retryAfter}ms.`
-                )
-                try {
-                    return await this.retry(this.getUser, [userId], error, 1)
-                } catch (error) {
-                    Logger.log(
-                        'Discord',
-                        'ERROR',
-                        `Toutes les tentatives ont échoué.`
-                    )
-                }
-            }
-            throw new DiscordClientError(
-                "Récupération de l'utilisateur impossible"
-            )
-        }
-    }
-
-    public static async getGuildMember(
-        userId: string
-    ): Promise<APIGuildMember | null> {
-        await this.getGuildMembers()
-
-        const cachedMember = Cache.getMember(userId)
-        if (typeof cachedMember !== 'undefined') return cachedMember
-        return null
-    }
-
     public static async getUserData(
-        token: RESTPostOAuth2AccessTokenResult
+        guild: Guild,
+        userId: string
     ): Promise<UserData> {
-        const user = await this.getCurrentUser(token)
+        const user =
+            guild.client.users.cache.get(userId) ??
+            (await guild.client.users.fetch(userId))
 
         const userData: UserData = {
             id: user.id,
-            username: user.global_name || user.username,
-            avatarURL: this.getUserAvatar(user),
+            username: user.username,
+            displayName: user.displayName,
+            avatarURL: user.displayAvatarURL({ extension: 'webp', size: 128 }),
             isAdmin: false,
-            isBSFR: false
+            isBSFR: false,
+            isNitroBooster: false
         }
 
-        const member = await this.getGuildMember(user.id)
+        const member = guild.members.cache.get(userId)
         if (member) {
-            userData.username = this.getMemberNick(member)
+            userData.displayName = member.displayName
+            userData.avatarURL = member.displayAvatarURL({
+                extension: 'webp',
+                size: 128
+            })
             userData.isBSFR = true
             // On vérifie si le membre a le rôle "Administrateur" ou "Modérateur"
             if (
-                member.roles.find(
+                member.roles.cache.find(
                     (r) =>
-                        r === config.discord.roles['Admin'] ||
-                        r === config.discord.roles['Modérateur']
+                        r.id === config.discord.roles['Admin'] ||
+                        r.id === config.discord.roles['Modérateur']
                 )
             )
                 userData.isAdmin = true
+            // On vérifie si le membre boost le serveur
+            if (member.premiumSince) userData.isNitroBooster = true
         }
 
         return userData
-    }
-
-    public static getUserNick(user: APIUser) {
-        return user.global_name || user.username
-    }
-
-    public static getMemberNick(member: APIGuildMember) {
-        return member.nick || member.user.global_name || member.user.username
-    }
-
-    public static getUserAvatar(user: APIUser, size: number = 128) {
-        const index =
-            user.discriminator === '0'
-                ? Number((BigInt(user.id) >> 22n) % 6n)
-                : Number(user.discriminator) % 5
-        const avatarURL = user.avatar
-            ? CDNRoutes.userAvatar(user.id, user.avatar, ImageFormat.WebP)
-            : CDNRoutes.defaultUserAvatar(index as DefaultUserAvatarAssets)
-        return `https://cdn.discordapp.com${avatarURL}?size=${size}`
-    }
-
-    public static async getGuildMembers(
-        after: string | null = null
-    ): Promise<APIGuildMember[]> {
-        const cachedMembers = Cache.getMembers()
-        if (cachedMembers) return cachedMembers
-
-        try {
-            const limit = 1000
-            let members: APIGuildMember[] = []
-            do {
-                const params: Record<string, string> = {
-                    limit: limit.toString()
-                }
-
-                if (after) params.after = after
-
-                const rest = new REST().setToken(config.discord.bot_token)
-                const data = (await rest.get(
-                    Routes.guildMembers(config.discord.guild_id),
-                    {
-                        query: new URLSearchParams(params)
-                    }
-                )) as APIGuildMember[]
-
-                after =
-                    data.length === limit
-                        ? data.length > 0
-                            ? [...data].pop()?.user.id || null
-                            : null
-                        : null
-                members = [...members, ...data]
-            } while (after !== null)
-            return Cache.setMembers(members)
-        } catch (error) {
-            if (error instanceof DiscordAPIError) {
-                Logger.log('Discord', 'ERROR', `${error.message}`)
-            } else if (error instanceof RateLimitError) {
-                Logger.log(
-                    'Discord',
-                    'ERROR',
-                    `${error.message} (url: ${error.url}), nouvel essai dans ${error.retryAfter}ms.`
-                )
-                try {
-                    return await this.retry(
-                        this.getGuildMembers,
-                        [after],
-                        error,
-                        1
-                    )
-                } catch (error) {
-                    Logger.log(
-                        'Discord',
-                        'ERROR',
-                        `Toutes les tentatives ont échoué.`
-                    )
-                }
-            }
-            throw new DiscordClientError(
-                'Récupération des membres de la guild impossible'
-            )
-        }
-    }
-
-    public static async getGuildRoles(): Promise<APIRole[]> {
-        const cachedRoles = Cache.getRoles()
-        if (cachedRoles) return cachedRoles
-
-        try {
-            const rest = new REST().setToken(config.discord.bot_token)
-            const roles = (await rest.get(
-                Routes.guildRoles(config.discord.guild_id)
-            )) as APIRole[]
-            return Cache.setRoles(roles)
-        } catch (error) {
-            if (error instanceof DiscordAPIError) {
-                Logger.log('Discord', 'ERROR', `${error.message}`)
-            } else if (error instanceof RateLimitError) {
-                Logger.log(
-                    'Discord',
-                    'ERROR',
-                    `${error.message} (url: ${error.url}), nouvel essai dans ${error.retryAfter}ms.`
-                )
-                try {
-                    return await this.retry(this.getGuildRoles, [], error, 1)
-                } catch (error) {
-                    Logger.log(
-                        'Discord',
-                        'ERROR',
-                        `Toutes les tentatives ont échoué.`
-                    )
-                }
-            }
-            throw new DiscordClientError(
-                'Récupération des rôles de la guild impossible'
-            )
-        }
-    }
-
-    public static async getUserVoiceState(userId: string): Promise<GatewayVoiceState | undefined> {
-        try {
-            const rest = new REST().setToken(config.discord.bot_token)
-            const voiceState = (await rest.get(
-                Routes.guildVoiceState(config.discord.guild_id, userId)
-            )) as GatewayVoiceState
-            return voiceState
-        } catch (error) {
-            if (error instanceof DiscordAPIError) {
-                if(error.code === 10065) {
-                    return undefined
-                } else {
-                    Logger.log('Discord', 'ERROR', `${error.message}`)
-                }
-            } else if (error instanceof RateLimitError) {
-                Logger.log(
-                    'Discord',
-                    'ERROR',
-                    `${error.message} (url: ${error.url}), nouvel essai dans ${error.retryAfter}ms.`
-                )
-                try {
-                    return await this.retry(this.getUserVoiceState, [userId], error, 1)
-                } catch (error) {
-                    Logger.log(
-                        'Discord',
-                        'ERROR',
-                        `Toutes les tentatives ont échoué.`
-                    )
-                }
-            }
-            throw new DiscordClientError(
-                'Récupération de l\'état de la connexion vocale de l\'utilisateur impossible'
-            )
-        }
-    }
-
-    public static async modifyGuildMember(memberId: string, payload: ModifyGuildMemberPayload): Promise<APIGuildMember> {
-        try {
-            const rest = new REST().setToken(config.discord.bot_token)
-            const member = (await rest.patch(
-                Routes.guildMember(config.discord.guild_id, memberId),
-                {
-                    body: payload
-                }
-            )) as APIGuildMember
-            return Cache.setMember(memberId, member)
-        } catch (error) {
-            if (error instanceof DiscordAPIError) {
-                Logger.log('Discord', 'ERROR', `${error.message}`)
-            } else if (error instanceof RateLimitError) {
-                Logger.log(
-                    'Discord',
-                    'ERROR',
-                    `${error.message} (url: ${error.url}), nouvel essai dans ${error.retryAfter}ms.`
-                )
-                try {
-                    return await this.retry(this.modifyGuildMember, [memberId, payload], error, 1)
-                } catch (error) {
-                    Logger.log(
-                        'Discord',
-                        'ERROR',
-                        `Toutes les tentatives ont échoué.`
-                    )
-                }
-            }
-            throw new DiscordClientError(
-                'Mise à jour du membre de la guild impossible'
-            )
-        }
     }
 }
