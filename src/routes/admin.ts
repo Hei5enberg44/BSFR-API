@@ -4,6 +4,8 @@ import z from 'zod'
 
 import { authCheck, requireAdmin } from './middlewares.js'
 
+import { formatEmoji } from 'discord.js'
+
 import { Admin } from '../controllers/admin.js'
 import { Settings } from '../controllers/settings.js'
 import { MemberCardStatus } from '../controllers/cubestalker.js'
@@ -313,6 +315,26 @@ export default async (app: FastifyInstance) => {
                 )
             }
             res.send()
+        }
+    })
+
+    app.route({
+        method: 'GET',
+        url: '/guildEmojis',
+        onRequest: [authCheck, requireAdmin],
+        handler: async (req, res) => {
+            const emojis = app.discord.guild.emojis.cache.toJSON().map((e) => {
+                return {
+                    id: e.id,
+                    name: e.name,
+                    identifier: formatEmoji(e.id, e.animated ?? false),
+                    iconURL: e.imageURL({
+                        extension: e.animated ? 'gif' : 'webp',
+                        size: 64
+                    })
+                }
+            })
+            res.send(emojis)
         }
     })
 }

@@ -18,6 +18,7 @@ import mapRoutes from './routes/map.js'
 import youtubeRoutes from './routes/youtube.js'
 import rankedleRoutes from './routes/rankedle.js'
 import adminRoutes from './routes/admin.js'
+import agentRoutes from './routes/agent.js'
 import { errorHandler } from './routes/middlewares.js'
 
 declare module 'fastify' {
@@ -64,6 +65,7 @@ app.register(mapRoutes, { prefix: '/map' })
 app.register(youtubeRoutes, { prefix: '/youtube' })
 app.register(rankedleRoutes, { prefix: '/rankedle' })
 app.register(adminRoutes, { prefix: '/admin' })
+app.register(agentRoutes, { prefix: '/agent' })
 
 app.addHook('onRequest', (req, res, done) => {
     req.fastify = app
