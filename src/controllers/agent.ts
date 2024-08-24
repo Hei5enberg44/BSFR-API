@@ -143,7 +143,7 @@ export class Agent {
                 for (const role of roles) {
                     content = content.replace(
                         new RegExp(`(<@&${role.id}>)`, 'g'),
-                        `<span style="color:rgb(${role.color});background-color:rgba(${role.color}, 0.1);font-weight:500;border-radius:3px;padding:2px 4px">${role.name}</span>`
+                        `<span style="color:rgb(${role.color});background-color:rgba(${role.color}, 0.1);font-weight:500;border-radius:3px;padding:1px 3px;line-height:normal;">@${role.name}</span>`
                     )
                 }
 
@@ -152,7 +152,7 @@ export class Agent {
                 for (const user of users) {
                     content = content.replace(
                         new RegExp(`(<@${user.id}>)`, 'g'),
-                        `<span style="color:white;background-color:rgba(88,101,242,.3);font-weight:500;border-radius:3px;padding:2px 4px">@${user.name}</span>`
+                        `<span style="color:white;background-color:rgba(88,101,242,.3);font-weight:500;border-radius:3px;padding:1px 3px;line-height:normal">@${user.name}</span>`
                     )
                 }
 
@@ -161,7 +161,7 @@ export class Agent {
                 for (const channel of channels) {
                     content = content.replace(
                         new RegExp(`(<#${channel.id}>)`, 'g'),
-                        `<span style="color:white;background-color:rgba(88,101,242,.3);font-weight:500;border-radius:3px;padding:2px 4px"><span class="pi pi-hashtag"></span> ${channel.name}</span>`
+                        `<span style="color:white;background-color:rgba(88,101,242,.3);font-weight:500;border-radius:3px;padding:1px 3px;line-height:normal;display:inline-flex;align-items:center;column-gap:0.25rem"><span class="pi pi-hashtag"></span><span>${channel.name}</span></span>`
                     )
                 }
 
@@ -175,12 +175,12 @@ export class Agent {
                                 `<${emoji.animated ? 'a' : ''}:${emoji.name}:${emoji.id}>`,
                                 'g'
                             ),
-                            `<img src="${url}" width="22" height="22" style="vertical-align: middle;">`
+                            `<img src="${url}" width="22" height="22" style="vertical-align:top">`
                         )
                     } else {
                         content = content.replace(
                             new RegExp(emoji.name, 'g'),
-                            `<em-emoji set="twitter" native="${emoji.name}" size="22" style="vertical-align:middle"></em-emoji>`
+                            `<em-emoji set="twitter" native="${emoji.name}" size="22"></em-emoji>`
                         )
                     }
                 }
@@ -352,6 +352,50 @@ export class Agent {
                 if (error.code === RESTJSONErrorCodes.UnknownMessage) {
                     throw new Error(
                         "Le message auquel vous souhaitez répondre n'existe pas"
+                    )
+                }
+            }
+            throw error
+        }
+    }
+
+    public static async sendReaction(
+        guild: Guild,
+        channelId: string,
+        messageId: string,
+        emoji: string,
+        native: boolean
+    ) {
+        const channel = guild.channels.cache.get(channelId) as
+            | TextChannel
+            | VoiceChannel
+        if (!channel) throw new Error('Salon inconnu')
+
+        try {
+            const message = await channel.messages.fetch(messageId)
+            const reaction = native ? emoji : message.guild.emojis.cache.get(emoji)
+            if(typeof reaction === 'undefined') throw Error('Impossible d\'envoyer la réaction')
+            await message.react(reaction)
+        } catch (error) {
+            if (error instanceof DiscordAPIError) {
+                if (error.code === RESTJSONErrorCodes.UnknownMessage) {
+                    throw new Error(
+                        "Le message auquel vous souhaitez réagir n'existe pas"
+                    )
+                }
+                if (error.code === RESTJSONErrorCodes.MaximumNumberOfReactionsReached) {
+                    throw new Error(
+                        "Le nombre maximum de réactions a été atteint (20)"
+                    )
+                }
+                if (error.code === RESTJSONErrorCodes.ReactionWasBlocked) {
+                    throw new Error(
+                        "La réaction a été bloquée"
+                    )
+                }
+                if (error.code === RESTJSONErrorCodes.UserCannotUseBurstReactions) {
+                    throw new Error(
+                        "Calmez vous !"
                     )
                 }
             }

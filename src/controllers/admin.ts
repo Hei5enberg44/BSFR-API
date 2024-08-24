@@ -265,7 +265,7 @@ export class Admin {
     public static async addBirthdayMessage(memberId: string, message: string) {
         await A_BirthdayMessageModel.create({
             memberId,
-            message
+            message: message.trim()
         })
     }
 
@@ -274,7 +274,7 @@ export class Admin {
             where: { id }
         })
         if (birthdayMessage) {
-            birthdayMessage.message = message
+            birthdayMessage.message = message.trim()
             await birthdayMessage.save()
         }
     }

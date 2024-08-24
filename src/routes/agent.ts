@@ -63,4 +63,29 @@ export default async (app: FastifyInstance) => {
             res.send()
         }
     })
+
+    app.withTypeProvider<ZodTypeProvider>().route({
+        method: 'POST',
+        url: '/sendReaction',
+        schema: {
+            body: z.object({
+                channelId: z.string(),
+                messageId: z.string(),
+                emoji: z.string(),
+                native: z.boolean()
+            })
+        },
+        onRequest: [authCheck, requireAdmin],
+        handler: async (req, res) => {
+            const { channelId, messageId, emoji, native } = req.body
+            await Agent.sendReaction(
+                app.discord.guild,
+                channelId,
+                messageId,
+                emoji,
+                native
+            )
+            res.send()
+        }
+    })
 }
