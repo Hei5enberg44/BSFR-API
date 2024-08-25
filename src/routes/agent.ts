@@ -4,7 +4,7 @@ import z from 'zod'
 
 import { authCheck, requireAdmin } from './middlewares.js'
 
-import { Agent } from '../controllers/agent.js'
+import { Agent, AgentSettingData } from '../controllers/agent.js'
 
 import Logger from '../utils/logger.js'
 import config from '../config.json' assert { type: 'json' }
@@ -85,6 +85,33 @@ export default async (app: FastifyInstance) => {
                 emoji,
                 native
             )
+            res.send()
+        }
+    })
+
+    app.route({
+        method: 'GET',
+        url: '/settings',
+        onRequest: [authCheck, requireAdmin],
+        handler: async (req, res) => {
+            const settings = await Agent.getSettings()
+            res.send(settings)
+        }
+    })
+
+    app.withTypeProvider<ZodTypeProvider>().route({
+        method: 'POST',
+        url: '/setting',
+        schema: {
+            body: z.object({
+                name: z.string(),
+                data: z.custom<AgentSettingData>()
+            })
+        },
+        onRequest: [authCheck, requireAdmin],
+        handler: async (req, res) => {
+            const { name, data } = req.body
+            await Agent.updateSetting(name, data)
             res.send()
         }
     })

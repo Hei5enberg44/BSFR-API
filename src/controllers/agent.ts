@@ -10,6 +10,7 @@ import {
 import { CDNRoutes, ImageFormat } from 'discord.js'
 import emojiRegex from 'emoji-regex'
 import * as marked from 'marked'
+import { A_SettingModel } from '../models/agent.model.js'
 
 interface GuildChannel {
     id: string
@@ -49,7 +50,7 @@ interface MessageGuildChannel {
 }
 
 interface DMSettings {
-    enables: boolean
+    enabled: boolean
 }
 
 export type AgentSettingData = DMSettings
@@ -180,7 +181,7 @@ export class Agent {
                     } else {
                         content = content.replace(
                             new RegExp(emoji.name, 'g'),
-                            `<em-emoji set="twitter" native="${emoji.name}" size="22"></em-emoji>`
+                            `<em-emoji set="twitter" native="${emoji.name}" fallback="${emoji.name}" size="22"></em-emoji>`
                         )
                     }
                 }
@@ -373,8 +374,11 @@ export class Agent {
 
         try {
             const message = await channel.messages.fetch(messageId)
-            const reaction = native ? emoji : message.guild.emojis.cache.get(emoji)
-            if(typeof reaction === 'undefined') throw Error('Impossible d\'envoyer la réaction')
+            const reaction = native
+                ? emoji
+                : message.guild.emojis.cache.get(emoji)
+            if (typeof reaction === 'undefined')
+                throw Error("Impossible d'envoyer la réaction")
             await message.react(reaction)
         } catch (error) {
             if (error instanceof DiscordAPIError) {
@@ -383,23 +387,43 @@ export class Agent {
                         "Le message auquel vous souhaitez réagir n'existe pas"
                     )
                 }
-                if (error.code === RESTJSONErrorCodes.MaximumNumberOfReactionsReached) {
+                if (
+                    error.code ===
+                    RESTJSONErrorCodes.MaximumNumberOfReactionsReached
+                ) {
                     throw new Error(
-                        "Le nombre maximum de réactions a été atteint (20)"
+                        'Le nombre maximum de réactions a été atteint (20)'
                     )
                 }
                 if (error.code === RESTJSONErrorCodes.ReactionWasBlocked) {
-                    throw new Error(
-                        "La réaction a été bloquée"
-                    )
+                    throw new Error('La réaction a été bloquée')
                 }
-                if (error.code === RESTJSONErrorCodes.UserCannotUseBurstReactions) {
-                    throw new Error(
-                        "Calmez vous !"
-                    )
+                if (
+                    error.code ===
+                    RESTJSONErrorCodes.UserCannotUseBurstReactions
+                ) {
+                    throw new Error('Calmez vous !')
                 }
             }
             throw error
         }
+    }
+
+    public static async getSettings() {
+        const settings = A_SettingModel.findAll({
+            attributes: ['name', 'data'],
+            raw: true
+        })
+        return settings
+    }
+
+    public static async updateSetting(name: string, data: AgentSettingData) {
+        const setting = await A_SettingModel.findOne({
+            where: { name }
+        })
+        if (!setting) throw new Error('Paramètre introuvable')
+
+        setting.data = data
+        await setting.save()
     }
 }
