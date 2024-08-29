@@ -26,10 +26,22 @@ interface MapData {
     }
 }
 
-interface RankedleScoreDetail {
-    status: 'skip' | 'fail'
+export enum RankedleScoreDetailStatus {
+    SKIP = 'skip',
+    FAIL = 'fail'
+}
+
+export interface RankedleScoreDetail {
+    status: RankedleScoreDetailStatus
     text: string
     mapId?: number
+    date: number
+}
+
+export enum RankedleMessageType {
+    FIRST_TRY = 'first_try',
+    WON = 'won',
+    LOSE = 'lose'
 }
 
 const sequelizeRankedle = new Sequelize(
@@ -120,7 +132,7 @@ interface R_RankedleMessageModel
         InferCreationAttributes<R_RankedleMessageModel>
     > {
     id: CreationOptional<number>
-    type: string
+    type: RankedleMessageType
     content?: string
     image?: Buffer
 }
@@ -147,13 +159,13 @@ interface R_RankedleScoreModel
     id: CreationOptional<number>
     rankedleId: number
     memberId: string
-    dateStart?: Date
-    dateEnd?: Date
+    dateStart: CreationOptional<Date | null>
+    dateEnd: CreationOptional<Date | null>
     skips: number
-    details?: RankedleScoreDetail[]
+    details: CreationOptional<RankedleScoreDetail[] | null>
     hint: boolean
-    success?: boolean
-    messageId?: number
+    success: CreationOptional<boolean | null>
+    messageId: CreationOptional<number | null>
 }
 
 const R_RankedleScoreModel = sequelizeRankedle.define<R_RankedleScoreModel>(
@@ -166,13 +178,28 @@ const R_RankedleScoreModel = sequelizeRankedle.define<R_RankedleScoreModel>(
         },
         rankedleId: DataTypes.INTEGER(),
         memberId: DataTypes.STRING(255),
-        dateStart: DataTypes.DATE(),
-        dateEnd: DataTypes.DATE(),
+        dateStart: {
+            type: DataTypes.DATE(),
+            allowNull: true
+        },
+        dateEnd: {
+            type: DataTypes.DATE(),
+            allowNull: true
+        },
         skips: DataTypes.INTEGER(),
-        details: DataTypes.JSON(),
+        details: {
+            type: DataTypes.JSON(),
+            allowNull: true
+        },
         hint: DataTypes.BOOLEAN(),
-        success: DataTypes.BOOLEAN(),
-        messageId: DataTypes.INTEGER()
+        success: {
+            type: DataTypes.BOOLEAN(),
+            allowNull: true
+        },
+        messageId: {
+            type: DataTypes.INTEGER(),
+            allowNull: true
+        }
     }
 )
 

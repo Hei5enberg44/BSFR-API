@@ -1,4 +1,4 @@
-import { Guild } from 'discord.js'
+import { Guild, OverwriteData, TextChannel } from 'discord.js'
 import { REST, DiscordAPIError, RateLimitError } from '@discordjs/rest'
 import {
     APIUser,
@@ -200,5 +200,16 @@ export class DiscordClient {
         }
 
         return userData
+    }
+
+    public static async updateChannelPermissions(
+        guild: Guild,
+        channelId: string,
+        permissions: OverwriteData[]
+    ) {
+        const channel = guild.channels.cache.get(channelId)
+        if (channel) {
+            await (channel as TextChannel).permissionOverwrites.set(permissions)
+        }
     }
 }

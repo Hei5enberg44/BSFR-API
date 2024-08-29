@@ -6,6 +6,8 @@ import {
     serializerCompiler,
     validatorCompiler
 } from 'fastify-type-provider-zod'
+import { CronJob } from 'cron'
+import { Rankedle } from './controllers/rankedle.js'
 import { Client, GatewayIntentBits, Guild, Partials } from 'discord.js'
 import { UserData } from './controllers/discord.js'
 
@@ -113,5 +115,16 @@ client.login(config.discord.bot_token).then(() => {
     app.listen({ port: config.app.port }, async (err, address) => {
         if (err) Logger.log('Init', 'ERROR', err.message)
         else Logger.log('Init', 'INFO', 'API démarrée')
+
+        new CronJob(
+            '*/30 * * * *',
+            async () => {
+                await Rankedle.generateRankedle()
+                await Rankedle.updateRankedland(guild)
+            },
+            null,
+            true,
+            'Europe/Paris'
+        )
     })
 })

@@ -1,12 +1,19 @@
-import { Guild } from 'discord.js'
+import {
+    Guild,
+    OverwriteData,
+    OverwriteType,
+    PermissionFlagsBits
+} from 'discord.js'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { exec } from 'node:child_process'
 import { fileURLToPath } from 'url'
 import { createCanvas, loadImage } from 'canvas'
 import sharp from 'sharp'
 import ffmpeg from 'fluent-ffmpeg'
 import yauzl from 'yauzl'
 import tmp from 'tmp'
+import WaveFormData from 'waveform-data'
 import { Sequelize, Op } from 'sequelize'
 import {
     R_RankedleModel,
@@ -14,18 +21,24 @@ import {
     R_RankedleSeasonModel,
     R_RankedleScoreModel,
     R_RankedleStatModel,
-    R_RankedleMessageModel
+    R_RankedleMessageModel,
+    RankedleMessageType,
+    RankedleScoreDetail,
+    RankedleScoreDetailStatus
 } from '../models/rankedle.model.js'
 import { Mime } from '../utils/mime.js'
 import Logger from '../utils/logger.js'
 import config from '../config.json' assert { type: 'json' }
+import { DiscordClient } from './discord.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const RANKEDLE_PATH = path.resolve(__dirname, '../../rankedle')
+const BIN_PATH = path.join(__dirname, '../../bin')
 const EGG_PATH = path.join(RANKEDLE_PATH, 'song.egg')
-const WEBM_PATH = path.join(RANKEDLE_PATH, 'song.mp3')
-const TRIMED_WEBM_PATH = path.join(RANKEDLE_PATH, 'preview_full.mp3')
+const MP3_PATH = path.join(RANKEDLE_PATH, 'song.mp3')
+const TRIMED_MP3_PATH = path.join(RANKEDLE_PATH, 'preview_full.mp3')
+const WAVEFORM_PATH = path.join(RANKEDLE_PATH, 'waveform.json')
 const BITRATE = 96
 const RANGES = ['00:01', '00:02', '00:04', '00:07', '00:11', '00:16']
 const POINTS = [8, 6, 4, 3, 2, 1, 0]
@@ -177,12 +190,122 @@ export class Rankedle {
         })
     }
 
+    private static async generateSongWaveform(
+        songPath: string,
+        outPath: string
+    ) {
+        return new Promise((res, rej) => {
+            const command = path.resolve(`${BIN_PATH}`, 'audiowaveform')
+            const args = [
+                '-i',
+                path.resolve(songPath),
+                '--input-format',
+                'mp3',
+                '--output-format',
+                'json',
+                '-o',
+                path.resolve(outPath)
+            ]
+            exec(`${command} ${args.join(' ')}`, (err, stdout, stderr) => {
+                if (err) rej(err)
+                res(stderr)
+            })
+        })
+    }
+
+    public static getSongWaveform(
+        type: 'base' | 'unlocked' | 'progress' = 'base',
+        barCount = 200,
+        barWidth = 8,
+        gap = 8
+    ) {
+        const waveformFile = fs.readFileSync(WAVEFORM_PATH)
+        const waveformJson = JSON.parse(waveformFile.toString())
+        const waveformData = WaveFormData.create(waveformJson)
+
+        const normalizedData = this.getNormalizedData(waveformData, barCount)
+
+        const imageWidth = (barWidth + gap) * normalizedData.length - gap
+        const imageHeight = imageWidth / 8
+
+        const canvas = createCanvas(imageWidth, imageHeight + 10)
+        const ctx = canvas.getContext('2d')
+
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height)
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.2')
+        gradient.addColorStop(0.5, type === 'base' ? '#666666' : '#CCCCCC')
+        gradient.addColorStop(1, 'rgba(255, 255, 255, 0.2')
+
+        ctx.fillStyle = gradient
+
+        let x = 0
+        for (let i = 0; i < normalizedData.length; i++) {
+            const dataVal = normalizedData[i] * imageHeight
+
+            const startY = (imageHeight - dataVal) / 2
+
+            ctx.roundRect(x, startY + 5, barWidth, dataVal, barWidth / 2)
+
+            x += barWidth + gap
+        }
+
+        ctx.fill()
+
+        if (type === 'base' || type === 'unlocked') {
+            const waveformBuffer = canvas.toBuffer()
+            return waveformBuffer
+        } else if (type === 'progress') {
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0)
+            gradient.addColorStop(0, '#3398db')
+            gradient.addColorStop(0.5, '#c666c7')
+            gradient.addColorStop(1, '#e74d3c')
+
+            ctx.fillStyle = gradient
+            ctx.globalCompositeOperation = 'source-atop'
+            ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+            const progressBuffer = canvas.toBuffer()
+            return progressBuffer
+        }
+    }
+
+    private static getNormalizedData(
+        waveformData: WaveFormData,
+        samples: number
+    ) {
+        const channel = waveformData.channel(0)
+        const blockSize = Math.floor(waveformData.length / samples)
+        const filteredData = []
+        for (let i = 0; i < samples; i++) {
+            let blockStart = blockSize * i
+            let sum = 0
+            for (let j = 0; j < blockSize; j++) {
+                sum = sum + Math.abs(channel.max_sample(blockStart + j))
+            }
+            filteredData.push(sum / blockSize)
+        }
+
+        return this.normalize(filteredData)
+    }
+
+    private static normalize(data: Array<number>) {
+        const multiplier = Math.pow(Math.max(...data), -1)
+        return data.map((n) => n * multiplier)
+    }
+
     public static async generateRankedle(mapId = null) {
         try {
             await this.finish()
 
             // Create necessary repository
-            if (!fs.existsSync(RANKEDLE_PATH)) fs.mkdirSync(RANKEDLE_PATH)
+            if (!fs.existsSync(RANKEDLE_PATH)) {
+                fs.mkdirSync(RANKEDLE_PATH)
+            } else {
+                // Empty Rankedle directory
+                fs.readdirSync(RANKEDLE_PATH)
+                    .filter((f) => f.match(/\.[mp3|json]$/))
+                    .map((f) => fs.unlinkSync(f))
+            }
 
             // Get random map from database
             const where = mapId ? { id: mapId } : {}
@@ -209,10 +332,10 @@ export class Rankedle {
                 songZip.removeCallback()
 
                 // Trim silence
-                await this.trimSilence(EGG_PATH, WEBM_PATH)
+                await this.trimSilence(EGG_PATH, MP3_PATH)
 
                 // Get time range
-                const dataTrimed = await this.getSongMetaData(WEBM_PATH)
+                const dataTrimed = await this.getSongMetaData(MP3_PATH)
                 const duration = Math.floor(dataTrimed.format.duration ?? 0)
                 const start =
                     duration >= 30
@@ -220,16 +343,19 @@ export class Rankedle {
                         : 0
 
                 // Trim song
-                await this.trim(WEBM_PATH, TRIMED_WEBM_PATH, start)
+                await this.trim(MP3_PATH, TRIMED_MP3_PATH, start)
 
                 for (let i = 0; i < RANGES.length; i++) {
                     await this.trim(
-                        TRIMED_WEBM_PATH,
+                        TRIMED_MP3_PATH,
                         path.join(RANKEDLE_PATH, `preview_${i}.mp3`),
                         '00:00',
                         RANGES[i]
                     )
                 }
+
+                // Generate song waveform
+                await this.generateSongWaveform(TRIMED_MP3_PATH, WAVEFORM_PATH)
 
                 const seasonId = await this.getCurrentSeason()
 
@@ -278,23 +404,38 @@ export class Rankedle {
                       .map((d) => d.mapId as number)
                 : []
 
+            const searchQueryArray = []
+
+            for (const q of query.split(' ')) {
+                const search = q.trim()
+                if (search !== '') {
+                    const queryArray = [
+                        {
+                            [Op.or]: {
+                                'map.metadata.songAuthorName': {
+                                    [Op.like]: `%${search}%`
+                                },
+                                'map.metadata.songName': {
+                                    [Op.like]: `%${search}%`
+                                },
+                                'map.metadata.songSubName': {
+                                    [Op.like]: `%${search}%`
+                                }
+                            }
+                        }
+                    ]
+                    searchQueryArray.push(...queryArray)
+                }
+            }
+
             const maps = await R_RankedleMapModel.findAll({
                 where: {
-                    [Op.or]: {
-                        'map.metadata.songAuthorName': {
-                            [Op.like]: `%${query}%`
-                        },
-                        'map.metadata.songName': {
-                            [Op.like]: `%${query}%`
-                        },
-                        'map.metadata.songSubName': {
-                            [Op.like]: `%${query}%`
-                        }
-                    },
+                    [Op.and]: searchQueryArray,
                     id: {
                         [Op.notIn]: mapsToExclude
                     }
                 },
+                limit: 5,
                 raw: true
             })
 
@@ -373,9 +514,9 @@ export class Rankedle {
         return blacklist.includes(memberId)
     }
 
-    public static async playRequest(memberId: string) {
+    public static async play(memberId: string) {
         const rankedle = await this.getCurrentRankedle()
-        if (!rankedle) throw new Error('No rankedle found')
+        if (!rankedle) throw new Error('Pas de Rankedle en cours')
 
         const rankedleScore = await this.getUserScore(rankedle.id, memberId)
         await this.setDateStart(rankedle.id, memberId, rankedleScore)
@@ -395,7 +536,6 @@ export class Rankedle {
                 'max-age=0, no-cache, no-store, must-revalidate, proxy-revalidate',
             Pragma: 'no-cache',
             Expires: 0,
-            'X-Pad': 'avoid browser bug',
             ETag: fileName
         }
 
@@ -425,17 +565,13 @@ export class Rankedle {
         }
     }
 
-    // static async scoreRequest(req: FastifyRequest, res: FastifyReply) {
-    //     if(!req.session.user) throw new Error('User not connected')
-    //     const user = req.session.user
+    static async getPlayerScore(memberId: string) {
+        const rankedle = await this.getCurrentRankedle()
+        if (!rankedle) throw new Error('Pas de Rankedle en cours')
 
-    //     const rankedle = await this.getCurrentRankedle()
-    //     if(!rankedle) throw new Error('No rankedle found')
-
-    //     const rankedleScore = await this.getUserScore(rankedle.id, user.id)
-
-    //     res.send(rankedleScore)
-    // }
+        const rankedleScore = await this.getUserScore(rankedle.id, memberId)
+        return rankedleScore
+    }
 
     static async blurImage(url: string) {
         const canvas = createCanvas(300, 300)
@@ -452,164 +588,194 @@ export class Rankedle {
         return image
     }
 
-    // static async hintRedeem(req: FastifyRequest, res: FastifyReply) {
-    //     if(!req.session.user) throw new Error('User not connected')
-    //     const user = req.session.user
+    static async hintRedeem(memberId: string) {
+        const rankedle = await this.getCurrentRankedle()
+        if (!rankedle) throw new Error('Pas de Rankedle en cours')
 
-    //     const rankedle = await this.getCurrentRankedle()
-    //     if(!rankedle) throw new Error('No rankedle found')
+        const rankedleScore = await this.getUserScore(rankedle.id, memberId)
+        if (rankedleScore?.skips !== 5) throw new Error('Action impossible')
 
-    //     const rankedleScore = await this.getUserScore(rankedle.id, user.id)
-    //     if(rankedleScore?.skips !== 5) throw new Error('Action impossible')
+        if (!rankedleScore.hint) {
+            rankedleScore.hint = true
+            await rankedleScore.save()
+        }
 
-    //     if(!rankedleScore.hint) {
-    //         rankedleScore.hint = true
-    //         await rankedleScore.save()
-    //     }
+        const mapData = (await R_RankedleMapModel.findOne({
+            where: { id: rankedle.mapId },
+            raw: true
+        })) as R_RankedleMapModel
+        const coverURL =
+            mapData.map.versions[mapData.map.versions.length - 1].coverURL
+        const coverBuffer = await this.blurImage(coverURL)
+        const cover = coverBuffer.toString('base64')
+        return cover
+    }
 
-    //     const mapData = await R_RankedleMapModel.findOne({
-    //         where: { id: rankedle.mapId },
-    //         raw: true
-    //     })
-    //     const coverURL = mapData.map.versions[mapData.map.versions.length - 1].coverURL
-    //     const coverBuffer = await this.blurImage(coverURL)
-    //     const cover = coverBuffer.toString('base64')
-    //     res.json({ cover })
-    // }
+    static async skip(guild: Guild, memberId: string) {
+        const rankedle = await this.getCurrentRankedle()
+        if (!rankedle) throw new Error('Pas de Rankedle en cours')
 
-    // static async skipRequest(req: FastifyRequest, res: FastifyReply) {
-    //     if(!req.session.user) throw new Error('User not connected')
-    //     const user = req.session.user
+        if (this.isBanned(memberId)) throw new Error('Action impossible')
 
-    //     const rankedle = await this.getCurrentRankedle()
-    //     if(!rankedle) throw new Error('No rankedle found')
+        let score = await R_RankedleScoreModel.findOne({
+            where: {
+                rankedleId: rankedle.id,
+                memberId
+            }
+        })
 
-    //     if(this.isBanned(user.id)) throw new Error('Action impossible')
+        const date = new Date()
 
-    //     let score = await R_RankedleScoreModel.findOne({
-    //         where: {
-    //             rankedleId: rankedle.id,
-    //             memberId: user.id
-    //         }
-    //     })
+        if (score) {
+            if (score.success === null) {
+                if (!score.dateStart) score.dateStart = date
 
-    //     const date = new Date()
+                if (score.skips === 6) {
+                    score.success = false
+                    score.messageId = await this.getRandomMessage(
+                        RankedleMessageType.LOSE
+                    )
+                } else {
+                    score.skips++
+                    const details: RankedleScoreDetail[] = [
+                        ...(score.details ?? []),
+                        {
+                            status: RankedleScoreDetailStatus.SKIP,
+                            text: `SKIP (${6 - score.skips + 1})`,
+                            date: Math.round(date.getTime() / 1000)
+                        }
+                    ]
+                    score.details = details
+                }
 
-    //     if(score) {
-    //         if(score.success === null) {
-    //             if(!score.dateStart) score.dateStart = date
+                await score.save()
+            }
+        } else {
+            score = await R_RankedleScoreModel.create({
+                rankedleId: rankedle.id,
+                memberId: memberId,
+                dateStart: date,
+                dateEnd: date,
+                skips: 1,
+                details: [
+                    {
+                        status: RankedleScoreDetailStatus.SKIP,
+                        text: 'SKIP (6)',
+                        date: Math.round(date.getTime() / 1000)
+                    }
+                ],
+                hint: false,
+                success: null
+            })
+        }
 
-    //             if(score.skips === 6) {
-    //                 score.success = false
-    //                 score.messageId = await this.getRandomMessage('lose')
-    //             } else {
-    //                 score.skips++
-    //                 const details = [
-    //                     ...(score.details ?? []),
-    //                     { status: 'skip', text: `SKIP (${6 - score.skips + 1})`, date: Math.round(date.getTime() / 1000) }
-    //                 ]
-    //                 score.details = details
-    //             }
+        if (score.dateEnd === null && score.success !== null) {
+            await this.updatePlayerStats(rankedle, score)
+            await this.updateRankedland(guild)
+        }
 
-    //             await score.save()
-    //         }
-    //     } else {
-    //         score = await R_RankedleScoreModel.create({
-    //             rankedleId: rankedle.id,
-    //             memberId: user.id,
-    //             dateStart: date,
-    //             skips: 1,
-    //             details: [
-    //                 { status: 'skip', text: 'SKIP (6)', date: Math.round(date.getTime() / 1000) }
-    //             ],
-    //             success: null
-    //         })
-    //     }
+        return score
+    }
 
-    //     if(score.dateEnd === null && score.success !== null) {
-    //         await this.updatePlayerStats(rankedle, score)
-    //         await this.updateRankedland()
-    //     }
+    static async submit(guild: Guild, memberId: string, mapId: number) {
+        const rankedle = await this.getCurrentRankedle()
+        if (!rankedle) throw new Error('Pas de Rankedle en cours')
 
-    //     res.json(score)
-    // }
+        if (this.isBanned(memberId)) throw new Error('Action impossible')
 
-    // static async submitRequest(req: FastifyRequest, res: FastifyReply) {
-    //     if(!req.session.user) throw new Error('User not connected')
-    //     const user = req.session.user
+        const mapData = (await R_RankedleMapModel.findOne({
+            where: { id: mapId }
+        })) as R_RankedleMapModel
 
-    //     const rankedle = await this.getCurrentRankedle()
-    //     if(!rankedle) throw new Error('No rankedle found')
+        const validMapData = (await R_RankedleMapModel.findOne({
+            where: { id: rankedle.mapId }
+        })) as R_RankedleMapModel
 
-    //     const mapId = req.body?.id
-    //     if(!mapId) throw new Error('Invalid request')
+        const songName = `${mapData.map.metadata.songAuthorName} - ${mapData.map.metadata.songName}${mapData.map.metadata.songSubName !== '' ? ` ${mapData.map.metadata.songSubName}` : ''}`
 
-    //     if(this.isBanned(user.id)) throw new Error('Action impossible')
+        let score = await R_RankedleScoreModel.findOne({
+            where: {
+                rankedleId: rankedle.id,
+                memberId: memberId
+            }
+        })
 
-    //     const mapData = await R_RankedleMapModel.findOne({
-    //         where: { id: mapId }
-    //     })
+        const success =
+            mapData.map.metadata.songAuthorName ===
+                validMapData.map.metadata.songAuthorName &&
+            mapData.map.metadata.songName === validMapData.map.metadata.songName
 
-    //     const validMapData = await R_RankedleMapModel.findOne({
-    //         where: { id: rankedle.mapId }
-    //     })
+        const date = new Date()
 
-    //     const songName = `${mapData.map.metadata.songAuthorName} - ${mapData.map.metadata.songName}${mapData.map.metadata.songSubName !== '' ? ` ${mapData.map.metadata.songSubName}` : ''}`
+        if (score) {
+            if (score.success === null) {
+                if (!score.dateStart) score.dateStart = date
 
-    //     let score = await R_RankedleScoreModel.findOne({
-    //         where: {
-    //             rankedleId: rankedle.id,
-    //             memberId: user.id
-    //         }
-    //     })
+                if (success && score.skips < 6) {
+                    score.success = true
+                    score.messageId =
+                        score.skips === 0
+                            ? await this.getRandomMessage(
+                                  RankedleMessageType.FIRST_TRY
+                              )
+                            : await this.getRandomMessage(
+                                  RankedleMessageType.WON
+                              )
+                } else {
+                    if (score.skips === 6) {
+                        score.success = false
+                        score.messageId = await this.getRandomMessage(
+                            RankedleMessageType.LOSE
+                        )
+                    } else {
+                        score.skips++
+                        const details: RankedleScoreDetail[] = [
+                            ...(score.details ?? []),
+                            {
+                                status: RankedleScoreDetailStatus.FAIL,
+                                text: songName,
+                                mapId: mapData.id,
+                                date: Math.round(date.getTime() / 1000)
+                            }
+                        ]
+                        score.details = details
+                    }
+                }
 
-    //     const success = mapData.map.metadata.songAuthorName === validMapData.map.metadata.songAuthorName && mapData.map.metadata.songName === validMapData.map.metadata.songName
+                await score.save()
+            }
+        } else {
+            const scoreData = {
+                rankedleId: rankedle.id,
+                memberId: memberId,
+                dateStart: date,
+                skips: success ? 0 : 1,
+                details: success
+                    ? null
+                    : [
+                          {
+                              status: RankedleScoreDetailStatus.FAIL,
+                              text: songName,
+                              mapId: mapData.id,
+                              date: Math.round(date.getTime() / 1000)
+                          }
+                      ],
+                hint: false,
+                success: success ? true : null,
+                messageId: success
+                    ? await this.getRandomMessage(RankedleMessageType.FIRST_TRY)
+                    : null
+            }
+            score = await R_RankedleScoreModel.create(scoreData)
+        }
 
-    //     const date = new Date()
+        if (score.dateEnd === null && score.success !== null) {
+            await this.updatePlayerStats(rankedle, score)
+            await this.updateRankedland(guild)
+        }
 
-    //     if(score) {
-    //         if(score.success === null) {
-    //             if(!score.dateStart) score.dateStart = date
-
-    //             if(success && score.skips < 6) {
-    //                 score.success = true
-    //                 score.messageId = score.skips === 0 ? await this.getRandomMessage('first_try') : await this.getRandomMessage('won')
-    //             } else {
-    //                 if(score.skips === 6) {
-    //                     score.success = false
-    //                     score.messageId = await this.getRandomMessage('lose')
-    //                 } else {
-    //                     score.skips++
-    //                     const details = [
-    //                         ...(score.details ?? []),
-    //                         { status: 'fail', text: songName, mapId: mapData.id, date: Math.round(date.getTime() / 1000) }
-    //                     ]
-    //                     score.details = details
-    //                 }
-    //             }
-
-    //             await score.save()
-    //         }
-    //     } else {
-    //         const scoreData = {
-    //             rankedleId: rankedle.id,
-    //             memberId: user.id,
-    //             dateStart: date,
-    //             skips: success ? 0 : 1,
-    //             success: success ? true : null,
-    //             messageId: success ? await this.getRandomMessage('first_try') : null
-    //         }
-    //         if(!success) scoreData.details = [{ status: 'fail', text: songName, mapId: mapData.id, date: Math.round(date.getTime() / 1000) }]
-    //         score = await R_RankedleScoreModel.create(scoreData)
-    //     }
-
-    //     if(score.dateEnd === null && score.success !== null) {
-    //         await this.updatePlayerStats(rankedle, score)
-    //         await this.updateRankedland()
-    //     }
-
-    //     res.json(score)
-    // }
+        return score
+    }
 
     static async updatePlayerStats(
         rankedle: R_RankedleModel,
@@ -664,48 +830,51 @@ export class Rankedle {
         }
     }
 
-    // static async updateRankedland() {
-    //     const VIEW_CHANNEL = 1 << 10
+    static async updateRankedland(guild: Guild) {
+        const rankedle = await this.getCurrentRankedle()
 
-    //     const rankedle = await this.getCurrentRankedle()
+        if (rankedle) {
+            // Permissions par défaut du salon
+            const permissions: OverwriteData[] = [
+                {
+                    id: config.discord.roles['everyone'],
+                    type: OverwriteType.Role,
+                    deny: PermissionFlagsBits.ViewChannel
+                },
+                {
+                    id: config.discord.roles['Admin'],
+                    type: OverwriteType.Role,
+                    allow: PermissionFlagsBits.ViewChannel
+                }
+            ]
 
-    //     if(rankedle) {
-    //         // Permissions par défaut du salon
-    //         const permissions = [
-    //             {
-    //                 id: config.discord.roles['everyone'],
-    //                 type: 0,
-    //                 deny: VIEW_CHANNEL.toString()
-    //             },
-    //             {
-    //                 id: config.discord.roles['Admin'],
-    //                 type: 0,
-    //                 allow: VIEW_CHANNEL.toString()
-    //             }
-    //         ]
+            // Ajout de chaque joueur ayant terminé le Rankedle du jour aux permissions du salon
+            const scores = await this.getRankedleScores(rankedle.id)
+            const finishedScores = scores.filter((s) => s.success !== null)
+            for (const score of finishedScores) {
+                permissions.push({
+                    id: score.memberId,
+                    type: OverwriteType.Member,
+                    allow: PermissionFlagsBits.ViewChannel
+                })
+            }
 
-    //         // Ajout de chaque joueur ayant terminé le Rankedle du jour aux permissions du salon
-    //         const scores = await this.getRankedleScores(rankedle.id)
-    //         const finishedScores = scores.filter(s => s.success !== null)
-    //         for(const score of finishedScores) {
-    //             permissions.push({
-    //                 id: score.memberId,
-    //                 type: 1,
-    //                 allow: VIEW_CHANNEL.toString()
-    //             })
-    //         }
-
-    //         const payload = { permission_overwrites: permissions }
-
-    //         try {
-    //             const discord = new DiscordAPI()
-    //             await discord.updateChannel(config.discord.channels['rankedland'], payload)
-    //         } catch(error) {
-    //             console.log(error)
-    //             Logger.log('Échec de mise à jour des permissions pour le channel #rankedland')
-    //         }
-    //     }
-    // }
+            try {
+                await DiscordClient.updateChannelPermissions(
+                    guild,
+                    config.discord.channels.rankedland,
+                    permissions
+                )
+            } catch (error) {
+                console.log(error)
+                Logger.log(
+                    'Rankedle',
+                    'ERROR',
+                    'Échec de mise à jour des permissions pour le channel #rankedland'
+                )
+            }
+        }
+    }
 
     static async getResult(rankedle: R_RankedleModel, memberId: string) {
         if (!rankedle) return null
@@ -720,35 +889,10 @@ export class Rankedle {
 
         if (!mapData) return null
 
-        const steps: Array<null | string> = [null, null, null, null, null, null]
-        if (rankedleScore.details) {
-            for (let i = 0; i < rankedleScore.details.length; i++) {
-                const detail = rankedleScore.details[i]
-                steps[i] = detail.status
-            }
-        }
-        if (rankedleScore.success) steps[rankedleScore.skips] = 'success'
-        const score = [
-            !rankedleScore.success
-                ? '🔇'
-                : rankedleScore.skips === 0
-                  ? '🔊'
-                  : '🔉',
-            ...steps.map((s) =>
-                s === 'skip'
-                    ? '⬛'
-                    : s === 'fail'
-                      ? '🟥'
-                      : s === 'success'
-                        ? '🟩'
-                        : '⬜'
-            )
-        ]
+        const scoreData = this.getRankedleScoreData(rankedleScore)
 
         return {
-            won: rankedleScore.success,
-            skips: rankedleScore.skips,
-            score,
+            score: scoreData,
             points: POINTS[rankedleScore.skips],
             map: {
                 id: mapData.map.id,
@@ -763,45 +907,55 @@ export class Rankedle {
         }
     }
 
-    // static async shareRequest(req: FastifyRequest, res: FastifyReply) {
-    //     if(!req.session.user) throw new Error('User not connected')
-    //     const user = req.session.user
+    static async shareScore(memberId: string) {
+        const rankedle = await this.getCurrentRankedle()
+        if (!rankedle) throw new Error('Pas de Rankedle en cours')
 
-    //     const rankedle = await this.getCurrentRankedle()
-    //     if(!rankedle) throw new Error('No rankedle found')
+        const rankedleScore = await this.getUserScore(rankedle.id, memberId)
+        if (!rankedleScore || rankedleScore.success === null) return null
 
-    //     const rankedleScore = await this.getUserScore(rankedle.id, user.id)
-    //     if(!rankedleScore || rankedleScore.success === null) return null
+        const steps: Array<null | string> = [null, null, null, null, null, null]
+        if (rankedleScore.details) {
+            for (let i = 0; i < rankedleScore.details.length; i++) {
+                const detail = rankedleScore.details[i]
+                steps[i] = detail.status
+            }
+        }
+        if (rankedleScore.success) steps[rankedleScore.skips] = 'success'
 
-    //     const steps: Array<null | string> = [ null, null, null, null, null, null ]
-    //     if(rankedleScore.details) {
-    //         for(let i = 0; i < rankedleScore.details.length; i++) {
-    //             const detail = rankedleScore.details[i]
-    //             steps[i] = detail.status
-    //         }
-    //     }
-    //     if(rankedleScore.success) steps[rankedleScore.skips] = 'success'
+        let result = `Rankedle #${rankedle.id}\n\n`
+        result +=
+            [
+                !rankedleScore.success
+                    ? '🔇'
+                    : rankedleScore.skips === 0
+                      ? '🔊'
+                      : '🔉',
+                ...steps.map((s) =>
+                    s === 'skip'
+                        ? '⬛'
+                        : s === 'fail'
+                          ? '🟥'
+                          : s === 'success'
+                            ? '🟩'
+                            : '⬜'
+                )
+            ].join(' ') + '\n\n'
+        result += '<https://bsaber.fr/rankedle>'
 
-    //     let result = `Rankedle #${rankedle.id}\n\n`
-    //     result += [
-    //         (!rankedleScore.success ? '🔇' : rankedleScore.skips === 0 ? '🔊' : '🔉'),
-    //         ...steps.map(s => s === 'skip' ? '⬛' : s === 'fail' ? '🟥' : s === 'success' ? '🟩' : '⬜')
-    //     ].join(' ') + '\n\n'
-    //     result += '<https://bsaber.fr/rankedle>'
+        return result
+    }
 
-    //     res.send(result)
-    // }
-
-    // static async getRandomMessage(type) {
-    //     const randomMessage = await R_RankedleMessageModel.findAll({
-    //         where: { type },
-    //         order: Sequelize.literal('rand()'),
-    //         limit: 1,
-    //         attributes: [ 'id' ],
-    //         raw: true
-    //     })
-    //     return randomMessage.length === 1 ? randomMessage[0].id : null
-    // }
+    static async getRandomMessage(type: RankedleMessageType) {
+        const randomMessage = await R_RankedleMessageModel.findAll({
+            where: { type },
+            order: Sequelize.literal('rand()'),
+            limit: 1,
+            attributes: ['id'],
+            raw: true
+        })
+        return randomMessage.length === 1 ? randomMessage[0].id : null
+    }
 
     static async getMessageById(messageId: number) {
         const message = await R_RankedleMessageModel.findOne({
@@ -898,14 +1052,11 @@ export class Rankedle {
     ) {
         const history = []
 
+        const currentRankedle = await this.getCurrentRankedle()
+
         const { count: total, rows: rankedles } =
             await R_RankedleModel.findAndCountAll({
-                where: {
-                    date: {
-                        [Op.lt]: new Date()
-                    }
-                },
-                order: [['date', 'desc']],
+                order: [['id', 'desc']],
                 offset: first,
                 limit: rows,
                 raw: true
@@ -924,6 +1075,9 @@ export class Rankedle {
                 },
                 raw: true
             })
+
+            if (currentRankedle && rankedle.id === currentRankedle.id)
+                if (!rankedleScore || rankedleScore.success === null) continue
 
             const scoreData = this.getRankedleScoreData(rankedleScore)
 
@@ -1160,13 +1314,4 @@ export class Rankedle {
     //         season
     //     }
     // }
-
-    private static async deletePlayer(memberId: string) {
-        await R_RankedleScoreModel.destroy({
-            where: { memberId }
-        })
-        await R_RankedleStatModel.destroy({
-            where: { memberId }
-        })
-    }
 }
