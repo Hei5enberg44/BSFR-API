@@ -93,7 +93,11 @@ const client = new Client({
         GatewayIntentBits.MessageContent
     ],
     partials: [Partials.Message, Partials.Channel, Partials.Reaction],
-    closeTimeout: 5000
+    closeTimeout: 5_000,
+    rest: {
+        retries: 5,
+        timeout: 300_000
+    }
 })
 
 client.once('ready', async () => {
