@@ -43,6 +43,9 @@ const BITRATE = 96
 const RANGES = ['00:01', '00:02', '00:04', '00:07', '00:11', '00:16']
 const POINTS = [8, 6, 4, 3, 2, 1, 0]
 
+ffmpeg.setFfmpegPath(path.resolve(BIN_PATH, 'ffmpeg'))
+ffmpeg.setFfprobePath(path.resolve(BIN_PATH, 'ffprobe'))
+
 interface RankedleStat {
     seasonId: number
     memberId: string
@@ -195,7 +198,7 @@ export class Rankedle {
         outPath: string
     ) {
         return new Promise((res, rej) => {
-            const command = path.resolve(`${BIN_PATH}`, 'audiowaveform')
+            const command = path.resolve(BIN_PATH, 'audiowaveform')
             const args = [
                 '-i',
                 path.resolve(songPath),
