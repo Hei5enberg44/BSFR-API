@@ -464,15 +464,6 @@ export class Rankedle {
         return rankedle
     }
 
-    static async getLastRankedle() {
-        const rankedle = await R_RankedleModel.findOne({
-            order: [['id', 'desc']],
-            limit: 1,
-            raw: true
-        })
-        return rankedle
-    }
-
     static async getRankedleList() {
         const rankedleList = await R_RankedleModel.findAll({
             order: [['id', 'desc']],
@@ -1025,7 +1016,7 @@ export class Rankedle {
     }
 
     static async finish() {
-        const rankedle = await this.getLastRankedle()
+        const rankedle = await this.getCurrentRankedle()
 
         if (rankedle) {
             const scores = await this.getRankedleScores(rankedle.id)
@@ -1139,6 +1130,75 @@ export class Rankedle {
             skips,
             steps
         }
+    }
+
+    public static async getDailyStats(guild: Guild) {
+        const rankedle = await this.getCurrentRankedle()
+        if(rankedle) {
+            const stats = await R_RankedleScoreModel.findAll({
+                where: {
+                    rankedleId: rankedle.id
+                },
+                raw: true
+            })
+            const victories = stats.filter(s => s.success !== null && s.success)
+            const defeats = stats.filter(s => s.success !== null && !s.success)
+
+            const first = victories.filter(s => s.dateEnd !== null)
+                .map(s => {
+                    return {
+                        memberId: s.memberId,
+                        date: s.dateEnd ? s.dateEnd.getTime() : -1
+                    }
+                })
+                .filter(s => s.date > 0)
+                .toSorted((a, b) => a.date - b.date)
+
+            const firstMember = first.length > 0 ? guild.members.cache.get(first[0].memberId) : null
+
+            const fastest = victories.filter(s => s.dateEnd !== null)
+                .map(s => {
+                    return {
+                        memberId: s.memberId,
+                        duration: s.dateStart && s.dateEnd ? Math.floor((s.dateEnd.getTime() - s.dateStart.getTime()) / 1000) : -1
+                    }
+                })
+                .filter(s => s.duration > 0)
+                .toSorted((a, b) => a.duration - b.duration)
+
+            const fastestMember = fastest.length > 0 ? guild.members.cache.get(fastest[0].memberId) : null
+
+            return {
+                victories: victories.length,
+                defeats: defeats.length,
+                first: firstMember ? {
+                    memberId: first[0].memberId,
+                    name: firstMember.displayName,
+                    avatar: firstMember.displayAvatarURL({
+                        extension: 'webp',
+                        size: 64
+                    }),
+                    date: new Intl.DateTimeFormat('fr', { timeStyle: 'medium' }).format(new Date(first[0].date))
+                } : null,
+                fastest: fastestMember ? {
+                    memberId: fastest[0].memberId,
+                    name: fastestMember.displayName,
+                    avatar: fastestMember.displayAvatarURL({
+                        extension: 'webp',
+                        size: 64
+                    }),
+                    duration: this.formatDuration(fastest[0].duration)
+                } : null
+            }
+        }
+        return null
+    }
+
+    private static formatDuration(duration: number) {
+        const hours = Math.floor(duration / 3600) % 24
+        const minutes = Math.floor(duration / 60) % 60
+        const seconds = duration % 60
+        return `${hours}h ${minutes}min ${seconds}s`
     }
 
     // static async getSummary() {

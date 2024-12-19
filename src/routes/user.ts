@@ -436,11 +436,12 @@ export default async (app: FastifyInstance) => {
                     : MemberCardStatus.Pending
                 const cardStatus = await Settings.getCardStatus(userData.id)
 
-                if (cardStatus && cardStatus === MemberCardStatus.Pending) {
+                if (cardStatus !== null && cardStatus === MemberCardStatus.Preview) {
                     const cardId = await Settings.updateCardStatus(
                         userData.id,
                         status
                     )
+
                     if (cardId && !userData.isAdmin) {
                         const url = await Settings.sendCardRequest(
                             app.discord.guild,

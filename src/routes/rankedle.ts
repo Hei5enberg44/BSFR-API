@@ -14,6 +14,7 @@ export default async (app: FastifyInstance) => {
         handler: async (req, res) => {
             const userData = req.userData
             const current = await Rankedle.getCurrentRankedle()
+            const stats = await Rankedle.getDailyStats(app.discord.guild)
             const playerScore = current
                 ? await Rankedle.getPlayerScore(userData.id)
                 : null
@@ -22,6 +23,7 @@ export default async (app: FastifyInstance) => {
                 : null
             res.send({
                 current,
+                stats,
                 playerScore: playerScore,
                 result
             })
