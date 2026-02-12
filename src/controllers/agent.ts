@@ -10,7 +10,7 @@ import {
 import { CDNRoutes, ImageFormat } from 'discord.js'
 import emojiRegex from 'emoji-regex'
 import * as marked from 'marked'
-import { A_SettingModel } from '../models/agent.model.js'
+import { SettingModel } from '../models/agent/setting.model.js'
 
 interface GuildChannel {
     id: string
@@ -410,7 +410,7 @@ export class Agent {
     }
 
     public static async getSettings() {
-        const settings = A_SettingModel.findAll({
+        const settings = SettingModel.findAll({
             attributes: ['name', 'data'],
             raw: true
         })
@@ -418,7 +418,7 @@ export class Agent {
     }
 
     public static async updateSetting(name: string, data: AgentSettingData) {
-        const setting = await A_SettingModel.findOne({
+        const setting = await SettingModel.findOne({
             where: { name }
         })
         if (!setting) throw new Error('Paramètre introuvable')

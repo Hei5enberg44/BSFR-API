@@ -1,79 +1,189 @@
-import { Leaderboards, PlayerRanking } from './bsleaderboard.js'
-import { CS_LeaderboardModel } from '../models/cubestalker.model.js'
+import { countryCodeEmoji } from '../utils/country-code-emoji.js'
+import { GameLeaderboard, Leaderboards } from './gameLeaderboard.js'
+import { PlayerModel } from '../models/cubestalker/player.model.js'
 
-export class Leaderboard {
+class LeaderboardError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'LEADERBOARD_ERROR'
+        Error.captureStackTrace(this, this.constructor)
+    }
+}
+
+export default class Leaderboard {
     /**
-     * Récupération du classement serveur d'un joueur
+     * Récéupration du classement serveur global
      * @param leaderboardName choix du leaderboard
-     * @param playerId identifiant joueur
-     * @returns classement serveur du joueur
+     * @param type type de classement (pp ou acc)
+     * @param page page à afficher
+     * @param itemsPerPage nombre d'éléments par page (default: 10)
+     * @returns classement serveur global
      */
-    static async getPlayerServerRanking(
+    static async getLeaderboard(
         leaderboardName: Leaderboards,
-        playerId: string
+        type: string,
+        page: number,
+        itemsPerPage: number = 10
     ) {
         // Récupération du classement
-        const ld = await CS_LeaderboardModel.findAll({
-            where: { leaderboard: leaderboardName },
-            order: [['pp', 'ASC']]
+        const leaderboardCount = await PlayerModel.count({
+            where: { leaderboard: leaderboardName }
         })
 
-        // Récupération des rangs Discord du membre
-        const serverRankPP = ld
-            .sort((a, b) => b.pp - a.pp)
-            .findIndex(
-                (ld) =>
-                    ld.playerId === playerId &&
-                    ld.leaderboard === leaderboardName
-            )
-        const serverRankAcc = ld
-            .sort((a, b) => b.averageRankedAccuracy - a.averageRankedAccuracy)
-            .findIndex(
-                (ld) =>
-                    ld.playerId === playerId &&
-                    ld.leaderboard === leaderboardName
+        if (leaderboardCount == 0)
+            throw new LeaderboardError(
+                'Aucune donnée de classement disponible.'
             )
 
-        if (serverRankPP === -1 || serverRankAcc === -1) return null
+        const pageCount = Math.ceil(leaderboardCount / itemsPerPage)
 
-        return {
-            serverRankPP: serverRankPP + 1,
-            serverRankAcc: serverRankAcc + 1,
-            serverLdTotal: ld.length
+        if (page > pageCount)
+            throw new LeaderboardError("La page demandée n'existe pas.")
+
+        const ld = await PlayerModel.findAll({
+            where: { leaderboard: leaderboardName },
+            order:
+                type === 'points'
+                    ? [
+                          ['points', 'DESC'],
+                          ['id', 'ASC']
+                      ]
+                    : [
+                          ['averageRankedAccuracy', 'DESC'],
+                          ['id', 'ASC']
+                      ],
+            offset: (page - 1) * itemsPerPage,
+            limit: itemsPerPage
+        })
+
+        let playersList = ''
+        for (let i = 0; i < ld.length; i++) {
+            const ml = ld[i]
+            const pos = (page - 1) * itemsPerPage + i + 1
+            const rank = `#${pos}`
+                .replace(/^#1$/, '🥇')
+                .replace(/^#2$/, '🥈')
+                .replace(/^#3$/, '🥉')
+            const points =
+                new Intl.NumberFormat('en-US').format(ml.points) +
+                (leaderboardName !== Leaderboards.AccSaber ? 'pp' : 'ap')
+            const acc = ml.averageRankedAccuracy.toFixed(2) + '%'
+            const stat = type == 'points' ? points : acc
+            const leaderboardUrl = `https://${leaderboardName.toLowerCase()}.com/${leaderboardName === Leaderboards.AccSaber ? 'profile' : 'u'}/${ml.playerId}`
+            playersList += `${rank} — ${ml.playerCountry && ml.playerCountry !== '' ? countryCodeEmoji(ml.playerCountry) : '🏴‍☠️'} [${ml.playerName}](${leaderboardUrl}) — ${stat}\n`
         }
+
+        return { content: playersList, page, pageCount }
     }
 
     /**
-     * Récupération des données de classement d'un joueur
+     * Récupération du classement global
      * @param leaderboardName choix du leaderboard
-     * @param memberId identifiant Discord du membre
-     * @returns classement serveur du joueur
+     * @param count nombre de joueurs à récupérer
+     * @returns liste des meilleurs joueurs au classement mondial
      */
-    static async getPlayer(
+    static async getGlobalLeaderboard(
         leaderboardName: Leaderboards,
-        memberId: string
-    ): Promise<PlayerRanking | null> {
-        // Récupération du classement
-        const ld = await CS_LeaderboardModel.findAll({
-            where: { leaderboard: leaderboardName },
-            order: [['pp', 'ASC']]
-        })
+        count: number
+    ) {
+        let playersList = ''
 
-        // Récupération des données de classement du joueur
-        const ldData = ld.find(
-            (l) => l.memberId === memberId && l.leaderboard === leaderboardName
-        )
+        const gameLd = new GameLeaderboard(leaderboardName)
+        const global = await gameLd.requests.getGlobal(1)
 
-        if (!ldData) return null
-
-        return {
-            pp: ldData.pp,
-            rank: ldData.rank,
-            countryRank: ldData.countryRank,
-            averageRankedAccuracy: ldData.averageRankedAccuracy,
-            serverRankPP: ldData.serverRankPP,
-            serverRankAcc: ldData.serverRankAcc,
-            serverLdTotal: ld.length
+        for (let i = 0; i < count; i++) {
+            const gl = global[i]
+            const r = `#${gl.rank}`
+                .replace(/^#1$/, '🥇')
+                .replace(/^#2$/, '🥈')
+                .replace(/^#3$/, '🥉')
+            const points = new Intl.NumberFormat('en-US').format(gl.points ?? 0)
+            playersList += `${r} — ${gl.country && gl.country !== '' ? countryCodeEmoji(gl.country) : '🏴‍☠️'} [${gl.name}](${gl.url}) — ${points}${leaderboardName !== Leaderboards.AccSaber ? 'pp' : 'ap'}\n`
         }
+
+        return playersList
+    }
+
+    /**
+     * Récupération du classement global sur la position d'un joueur par rapport à son rang
+     * @param leaderboardName choix du leaderboard
+     * @param rank rang du joueur
+     * @returns liste des joueurs
+     */
+    static async getGlobalLeaderboardByPlayerRank(
+        leaderboardName: Leaderboards,
+        rank: number
+    ) {
+        const playersPerPage = 50
+        const page = Math.ceil(rank / 50)
+        let pos =
+            rank % playersPerPage === 1
+                ? 0
+                : rank % playersPerPage === 0
+                  ? playersPerPage - 1
+                  : (rank % playersPerPage) - 1
+
+        const gameLd = new GameLeaderboard(leaderboardName)
+        let ld = await gameLd.requests.getGlobal(page)
+
+        let start = pos - 5 >= 0 ? pos - 5 : pos
+        if (pos - 5 < 0 && page > 1) {
+            const _ld = await gameLd.requests.getGlobal(page - 1)
+            ld = _ld.concat(ld)
+            pos += playersPerPage
+            start = pos - 5
+        }
+        if (pos + 5 > ld.length - 1) {
+            let _ld = await gameLd.requests.getGlobal(page + 1)
+            if (_ld.length > 0) {
+                ld = ld.concat(_ld)
+            } else {
+                start = pos + (ld.length - pos - 11)
+                if (start < 0) {
+                    _ld = await gameLd.requests.getGlobal(page - 1)
+                    ld = _ld.concat(ld)
+                    start = playersPerPage + start
+                }
+            }
+        }
+
+        if (pos >= ld.length)
+            throw new LeaderboardError(
+                'Aucun joueur trouvé à cette position du classement'
+            )
+
+        let playersList = ''
+        for (let i = start; i <= start + 10; i++) {
+            const gl = ld[i]
+            const r = `#${gl.rank}`
+                .replace(/^#1$/, '🥇')
+                .replace(/^#2$/, '🥈')
+                .replace(/^#3$/, '🥉')
+            const points = new Intl.NumberFormat('en-US').format(gl.points ?? 0)
+            const bold = gl.rank === rank ? '**' : ''
+            playersList += `${bold}${r} — ${gl.country && gl.country !== '' ? countryCodeEmoji(gl.country) : '🏴‍☠️'} [${gl.name}](${gl.url}) — ${points}${leaderboardName !== Leaderboards.AccSaber ? 'pp' : 'ap'}${bold}\n`
+        }
+
+        return playersList
+    }
+
+    /**
+     * Récupération du classement global sur la position d'un joueur par rapport à son identifiant
+     * @param leaderboardName choix du leaderboard
+     * @param playerId identifiant du joueur
+     * @returns liste des joueurs
+     */
+    static async getGlobalLeaderboardByPlayerId(
+        leaderboardName: Leaderboards,
+        playerId: string
+    ) {
+        const gameLd = new GameLeaderboard(leaderboardName)
+        const rank = await gameLd.requests.getPlayerRankById(playerId)
+        if (!rank)
+            throw new LeaderboardError(
+                'Récupération du rang du joueur impossible'
+            )
+
+        return this.getGlobalLeaderboardByPlayerRank(leaderboardName, rank)
     }
 }

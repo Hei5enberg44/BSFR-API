@@ -1,14 +1,12 @@
 import { Guild } from 'discord.js'
-import { Op } from 'sequelize'
-import {
-    A_BanModel,
-    A_BirthdayMessageModel,
-    A_BirthdayModel,
-    A_MuteModel,
-    A_TwitchModel
-} from '../models/agent.model.js'
+import { Op } from '@sequelize/core'
+import { BanModel } from '../models/agent/ban.model.js'
+import { BirthdayModel } from '../models/agent/birthday.model.js'
+import { BirthdayMessageModel } from '../models/agent/birthdayMessage.model.js'
+import { MuteModel } from '../models/agent/mute.model.js'
+import { TwitchModel } from '../models/agent/twitch.model.js'
 import { getMemberOrUser, sort, filter } from '../utils/table.js'
-import { CS_CardModel } from '../models/cubestalker.model.js'
+import { CardModel } from '../models/cubestalker/card.model.js'
 
 type FilterMetadata = {
     [s: string]: {
@@ -26,7 +24,7 @@ export class Admin {
         sortOrder: number,
         filters: string
     ) {
-        const birthdays = await A_BirthdayModel.findAll({
+        const birthdays = await BirthdayModel.findAll({
             raw: true
         })
 
@@ -77,7 +75,7 @@ export class Admin {
         sortOrder: number,
         filters: string
     ) {
-        const mutes = await A_MuteModel.findAll({
+        const mutes = await MuteModel.findAll({
             raw: true
         })
 
@@ -138,7 +136,7 @@ export class Admin {
         sortOrder: number,
         filters: string
     ) {
-        const bans = await A_BanModel.findAll({
+        const bans = await BanModel.findAll({
             raw: true
         })
 
@@ -212,7 +210,7 @@ export class Admin {
         sortOrder: number,
         filters: string
     ) {
-        const birthdayMessages = await A_BirthdayMessageModel.findAll({
+        const birthdayMessages = await BirthdayMessageModel.findAll({
             raw: true
         })
 
@@ -263,14 +261,14 @@ export class Admin {
     }
 
     public static async addBirthdayMessage(memberId: string, message: string) {
-        await A_BirthdayMessageModel.create({
+        await BirthdayMessageModel.create({
             memberId,
             message: message.trim()
         })
     }
 
     public static async modifyBirthdayMessage(id: number, message: string) {
-        const birthdayMessage = await A_BirthdayMessageModel.findOne({
+        const birthdayMessage = await BirthdayMessageModel.findOne({
             where: { id }
         })
         if (birthdayMessage) {
@@ -280,7 +278,7 @@ export class Admin {
     }
 
     public static async deleteBirthdayMessage(id: number) {
-        await A_BirthdayMessageModel.destroy({
+        await BirthdayMessageModel.destroy({
             where: { id }
         })
     }
@@ -293,7 +291,7 @@ export class Admin {
         sortOrder: number,
         filters: string
     ) {
-        const twitchChannels = await A_TwitchModel.findAll({
+        const twitchChannels = await TwitchModel.findAll({
             raw: true
         })
 
@@ -350,7 +348,7 @@ export class Admin {
         sortOrder: number,
         filters: string
     ) {
-        const requests = await CS_CardModel.findAll({
+        const requests = await CardModel.findAll({
             where: { status: { [Op.ne]: 0 } },
             raw: true
         })
@@ -396,7 +394,7 @@ export class Admin {
     }
 
     public static async getCubeStalkerRequest(guild: Guild, id: number) {
-        const request = await CS_CardModel.findOne({
+        const request = await CardModel.findOne({
             where: { id, status: { [Op.ne]: 0 } },
             raw: true
         })

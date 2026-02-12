@@ -14,21 +14,23 @@ import ffmpeg from 'fluent-ffmpeg'
 import yauzl from 'yauzl'
 import tmp from 'tmp'
 import WaveFormData from 'waveform-data'
-import { Sequelize, Op } from 'sequelize'
+import { Op, literal } from '@sequelize/core'
+import { RankedleModel } from '../models/rankedle/rankedle.model.js'
+import { RankedleMapModel } from '../models/rankedle/rankedleMap.model.js'
 import {
-    R_RankedleModel,
-    R_RankedleMapModel,
-    R_RankedleSeasonModel,
-    R_RankedleScoreModel,
-    R_RankedleStatModel,
-    R_RankedleMessageModel,
-    RankedleMessageType,
+    RankedleMessageModel,
+    RankedleMessageType
+} from '../models/rankedle/rankedleMessage.model.js'
+import {
+    RankedleScoreModel,
     RankedleScoreDetail,
     RankedleScoreDetailStatus
-} from '../models/rankedle.model.js'
+} from '../models/rankedle/rankedleScore.model.js'
+import { RankedleSeasonModel } from '../models/rankedle/rankedleSeason.model.js'
+import { RankedleStatModel } from '../models/rankedle/rankedleStat.model.js'
 import { Mime } from '../utils/mime.js'
 import Logger from '../utils/logger.js'
-import config from '../config.json' assert { type: 'json' }
+import config from '../../config.json' with { type: 'json' }
 import { DiscordClient } from './discord.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -95,19 +97,17 @@ class RankedleError extends Error {
 
 export class Rankedle {
     private static async downloadSong(url: string) {
-        try {
-            const downloadRequest = await fetch(url)
-            if (downloadRequest.ok) {
-                const songZip = await downloadRequest.arrayBuffer()
-                const zipBuffer = Buffer.from(songZip)
-                const songTmp = tmp.fileSync()
-                fs.writeFileSync(songTmp.name, zipBuffer)
-                return songTmp
-            } else {
-                throw new RankedleError(`Song download failed (url: ${url})`)
-            }
-        } catch (error) {
-            throw new RankedleError(`Song download failed (url: ${url})`)
+        const downloadRequest = await fetch(url)
+        if (downloadRequest.ok) {
+            const songZip = await downloadRequest.arrayBuffer()
+            const zipBuffer = Buffer.from(songZip)
+            const songTmp = tmp.fileSync()
+            fs.writeFileSync(songTmp.name, zipBuffer)
+            return songTmp
+        } else {
+            throw new RankedleError(
+                `Song download failed: ${url} (${downloadRequest.statusText})`
+            )
         }
     }
 
@@ -300,7 +300,7 @@ export class Rankedle {
         try {
             await this.finish()
 
-            // Create necessary repository
+            // Create necessary directory
             if (!fs.existsSync(RANKEDLE_PATH)) {
                 fs.mkdirSync(RANKEDLE_PATH)
             } else {
@@ -312,13 +312,14 @@ export class Rankedle {
 
             // Get random map from database
             const where = mapId ? { id: mapId } : {}
-            const randomMap = await R_RankedleMapModel.findAll({
+            const randomMap = await RankedleMapModel.findAll({
                 where: { '$rankedle.id$': { [Op.eq]: null }, ...where },
                 include: {
-                    model: R_RankedleModel,
-                    required: false
+                    association: 'rankedle',
+                    required: false,
+                    attributes: []
                 },
-                order: Sequelize.literal('rand()'),
+                order: literal('rand()'),
                 limit: 1,
                 raw: true
             })
@@ -362,7 +363,7 @@ export class Rankedle {
 
                 const seasonId = await this.getCurrentSeason()
 
-                await R_RankedleModel.create({ mapId: mapId, seasonId })
+                await RankedleModel.create({ mapId: mapId, seasonId })
             }
         } catch (error) {
             if (error instanceof Error)
@@ -375,7 +376,7 @@ export class Rankedle {
     }
 
     static async getCurrentSeason() {
-        const seasons = await R_RankedleSeasonModel.findAll({
+        const seasons = await RankedleSeasonModel.findAll({
             order: [['id', 'desc']],
             limit: 1
         })
@@ -431,7 +432,7 @@ export class Rankedle {
                 }
             }
 
-            const maps = await R_RankedleMapModel.findAll({
+            const maps = await RankedleMapModel.findAll({
                 where: {
                     [Op.and]: searchQueryArray,
                     id: {
@@ -439,7 +440,8 @@ export class Rankedle {
                     }
                 },
                 limit: 5,
-                raw: true
+                raw: true,
+                logging: console.log
             })
 
             return !maps
@@ -456,16 +458,15 @@ export class Rankedle {
     }
 
     static async getCurrentRankedle() {
-        const rankedle = await R_RankedleModel.findOne({
+        const rankedle = await RankedleModel.findOne({
             where: { date: new Date() },
-            order: [['id', 'desc']],
-            raw: true
+            order: [['id', 'desc']]
         })
         return rankedle
     }
 
     static async getRankedleList() {
-        const rankedleList = await R_RankedleModel.findAll({
+        const rankedleList = await RankedleModel.findAll({
             order: [['id', 'desc']],
             raw: true
         })
@@ -473,7 +474,7 @@ export class Rankedle {
     }
 
     static async getUserScore(rankedleId: number, memberId: string) {
-        const score = await R_RankedleScoreModel.findOne({
+        const score = await RankedleScoreModel.findOne({
             where: { rankedleId, memberId }
         })
         return score
@@ -483,7 +484,7 @@ export class Rankedle {
         memberId: string
     ): Promise<RankedlePlayerStats | null> {
         const seasonId = await this.getCurrentSeason()
-        const stats = await R_RankedleStatModel.findOne({
+        const stats = await RankedleStatModel.findOne({
             where: { memberId, seasonId },
             raw: true
         })
@@ -539,10 +540,10 @@ export class Rankedle {
     static async setDateStart(
         rankedleId: number,
         memberId: string,
-        score: R_RankedleScoreModel | null
+        score: RankedleScoreModel | null
     ) {
         if (!score) {
-            await R_RankedleScoreModel.create({
+            await RankedleScoreModel.create({
                 rankedleId,
                 memberId,
                 dateStart: new Date(),
@@ -552,7 +553,7 @@ export class Rankedle {
         }
     }
 
-    static async setDateEnd(score: R_RankedleScoreModel) {
+    static async setDateEnd(score: RankedleScoreModel) {
         if (!score.dateEnd) {
             score.dateEnd = new Date()
             score.save()
@@ -594,10 +595,10 @@ export class Rankedle {
             await rankedleScore.save()
         }
 
-        const mapData = (await R_RankedleMapModel.findOne({
+        const mapData = (await RankedleMapModel.findOne({
             where: { id: rankedle.mapId },
             raw: true
-        })) as R_RankedleMapModel
+        })) as RankedleMapModel
         const coverURL =
             mapData.map.versions[mapData.map.versions.length - 1].coverURL
         const coverBuffer = await this.blurImage(coverURL)
@@ -611,7 +612,7 @@ export class Rankedle {
 
         if (this.isBanned(memberId)) throw new Error('Action impossible')
 
-        let score = await R_RankedleScoreModel.findOne({
+        let score = await RankedleScoreModel.findOne({
             where: {
                 rankedleId: rankedle.id,
                 memberId
@@ -645,7 +646,7 @@ export class Rankedle {
                 await score.save()
             }
         } else {
-            score = await R_RankedleScoreModel.create({
+            score = await RankedleScoreModel.create({
                 rankedleId: rankedle.id,
                 memberId: memberId,
                 dateStart: date,
@@ -677,17 +678,17 @@ export class Rankedle {
 
         if (this.isBanned(memberId)) throw new Error('Action impossible')
 
-        const mapData = (await R_RankedleMapModel.findOne({
+        const mapData = (await RankedleMapModel.findOne({
             where: { id: mapId }
-        })) as R_RankedleMapModel
+        })) as RankedleMapModel
 
-        const validMapData = (await R_RankedleMapModel.findOne({
+        const validMapData = (await RankedleMapModel.findOne({
             where: { id: rankedle.mapId }
-        })) as R_RankedleMapModel
+        })) as RankedleMapModel
 
         const songName = `${mapData.map.metadata.songAuthorName} - ${mapData.map.metadata.songName}${mapData.map.metadata.songSubName !== '' ? ` ${mapData.map.metadata.songSubName}` : ''}`
 
-        let score = await R_RankedleScoreModel.findOne({
+        let score = await RankedleScoreModel.findOne({
             where: {
                 rankedleId: rankedle.id,
                 memberId: memberId
@@ -760,7 +761,7 @@ export class Rankedle {
                     ? await this.getRandomMessage(RankedleMessageType.FIRST_TRY)
                     : null
             }
-            score = await R_RankedleScoreModel.create(scoreData)
+            score = await RankedleScoreModel.create(scoreData)
         }
 
         if (score.dateEnd === null && score.success !== null) {
@@ -772,12 +773,12 @@ export class Rankedle {
     }
 
     static async updatePlayerStats(
-        rankedle: R_RankedleModel,
-        score: R_RankedleScoreModel
+        rankedle: RankedleModel,
+        score: RankedleScoreModel
     ) {
         await this.setDateEnd(score)
 
-        const stats = await R_RankedleStatModel.findOne({
+        const stats = await RankedleStatModel.findOne({
             where: {
                 seasonId: rankedle.seasonId,
                 memberId: score.memberId
@@ -787,7 +788,26 @@ export class Rankedle {
         if (stats) {
             stats.played++
             if (score.success) {
-                stats[`try${score.skips + 1}`]++
+                switch (score.skips + 1) {
+                    case 1:
+                        stats.try1++
+                        break
+                    case 2:
+                        stats.try2++
+                        break
+                    case 3:
+                        stats.try3++
+                        break
+                    case 4:
+                        stats.try4++
+                        break
+                    case 5:
+                        stats.try5++
+                        break
+                    case 6:
+                        stats.try6++
+                        break
+                }
                 stats.won++
                 stats.currentStreak++
                 if (stats.currentStreak > stats.maxStreak)
@@ -820,7 +840,7 @@ export class Rankedle {
                 stats.maxStreak = 1
                 stats.points += POINTS[score.skips]
             }
-            await R_RankedleStatModel.create(stats)
+            await RankedleStatModel.create(stats)
         }
     }
 
@@ -831,12 +851,12 @@ export class Rankedle {
             // Permissions par défaut du salon
             const permissions: OverwriteData[] = [
                 {
-                    id: config.discord.roles['everyone'],
+                    id: config.discord.guild.roles['everyone'],
                     type: OverwriteType.Role,
                     deny: PermissionFlagsBits.ViewChannel
                 },
                 {
-                    id: config.discord.roles['Admin'],
+                    id: config.discord.guild.roles['Admin'],
                     type: OverwriteType.Role,
                     allow: PermissionFlagsBits.ViewChannel
                 }
@@ -856,7 +876,7 @@ export class Rankedle {
             try {
                 await DiscordClient.updateChannelPermissions(
                     guild,
-                    config.discord.channels.rankedland,
+                    config.discord.guild.channels.rankedland,
                     permissions
                 )
             } catch (error) {
@@ -870,13 +890,13 @@ export class Rankedle {
         }
     }
 
-    static async getResult(rankedle: R_RankedleModel, memberId: string) {
+    static async getResult(rankedle: RankedleModel, memberId: string) {
         if (!rankedle) return null
 
         const rankedleScore = await this.getUserScore(rankedle.id, memberId)
         if (!rankedleScore || rankedleScore.success === null) return null
 
-        const mapData = await R_RankedleMapModel.findOne({
+        const mapData = await RankedleMapModel.findOne({
             where: { id: rankedle.mapId },
             raw: true
         })
@@ -941,9 +961,9 @@ export class Rankedle {
     }
 
     static async getRandomMessage(type: RankedleMessageType) {
-        const randomMessage = await R_RankedleMessageModel.findAll({
+        const randomMessage = await RankedleMessageModel.findAll({
             where: { type },
-            order: Sequelize.literal('rand()'),
+            order: literal('rand()'),
             limit: 1,
             attributes: ['id'],
             raw: true
@@ -952,12 +972,12 @@ export class Rankedle {
     }
 
     static async getMessageById(messageId: number) {
-        const message = await R_RankedleMessageModel.findOne({
+        const message = (await RankedleMessageModel.findOne({
             where: { id: messageId },
             raw: true
-        })
-        const m: { content?: string; image: string | null } = {
-            content: message?.content,
+        })) as RankedleMessageModel
+        const m: { content: string | null; image: string | null } = {
+            content: message.content,
             image: null
         }
         if (message?.image) {
@@ -974,7 +994,7 @@ export class Rankedle {
 
     static async getRanking(guild: Guild) {
         const seasonId = await this.getCurrentSeason()
-        const rankingList = await R_RankedleStatModel.findAll({
+        const rankingList = await RankedleStatModel.findAll({
             where: { seasonId },
             order: [['points', 'desc']],
             raw: true
@@ -1033,7 +1053,7 @@ export class Rankedle {
     }
 
     static async getRankedleScores(rankedleId: number) {
-        const scores = await R_RankedleScoreModel.findAll({
+        const scores = await RankedleScoreModel.findAll({
             where: { rankedleId }
         })
         return scores
@@ -1049,7 +1069,7 @@ export class Rankedle {
         const currentRankedle = await this.getCurrentRankedle()
 
         const { count: total, rows: rankedles } =
-            await R_RankedleModel.findAndCountAll({
+            await RankedleModel.findAndCountAll({
                 order: [['id', 'desc']],
                 offset: first,
                 limit: rows,
@@ -1057,17 +1077,16 @@ export class Rankedle {
             })
 
         for (const rankedle of rankedles) {
-            const mapData = await R_RankedleMapModel.findOne({
+            const mapData = await RankedleMapModel.findOne({
                 where: { id: rankedle.mapId },
                 raw: true
             })
 
-            const rankedleScore = await R_RankedleScoreModel.findOne({
+            const rankedleScore = await RankedleScoreModel.findOne({
                 where: {
                     rankedleId: rankedle.id,
                     memberId
-                },
-                raw: true
+                }
             })
 
             if (currentRankedle && rankedle.id === currentRankedle.id)
@@ -1102,7 +1121,7 @@ export class Rankedle {
     }
 
     private static getRankedleScoreData(
-        rankedleScore: R_RankedleScoreModel | null
+        rankedleScore: RankedleScoreModel | null
     ) {
         if (!rankedleScore) return null
 
@@ -1134,61 +1153,86 @@ export class Rankedle {
 
     public static async getDailyStats(guild: Guild) {
         const rankedle = await this.getCurrentRankedle()
-        if(rankedle) {
-            const stats = await R_RankedleScoreModel.findAll({
+        if (rankedle) {
+            const stats = await RankedleScoreModel.findAll({
                 where: {
                     rankedleId: rankedle.id
                 },
                 raw: true
             })
-            const victories = stats.filter(s => s.success !== null && s.success)
-            const defeats = stats.filter(s => s.success !== null && !s.success)
+            const victories = stats.filter(
+                (s) => s.success !== null && s.success
+            )
+            const defeats = stats.filter(
+                (s) => s.success !== null && !s.success
+            )
 
-            const first = victories.filter(s => s.dateEnd !== null)
-                .map(s => {
+            const first = victories
+                .filter((s) => s.dateEnd !== null)
+                .map((s) => {
                     return {
                         memberId: s.memberId,
                         date: s.dateEnd ? s.dateEnd.getTime() : -1
                     }
                 })
-                .filter(s => s.date > 0)
+                .filter((s) => s.date > 0)
                 .toSorted((a, b) => a.date - b.date)
 
-            const firstMember = first.length > 0 ? guild.members.cache.get(first[0].memberId) : null
+            const firstMember =
+                first.length > 0
+                    ? guild.members.cache.get(first[0].memberId)
+                    : null
 
-            const fastest = victories.filter(s => s.dateEnd !== null)
-                .map(s => {
+            const fastest = victories
+                .filter((s) => s.dateEnd !== null)
+                .map((s) => {
                     return {
                         memberId: s.memberId,
-                        duration: s.dateStart && s.dateEnd ? Math.floor((s.dateEnd.getTime() - s.dateStart.getTime()) / 1000) : -1
+                        duration:
+                            s.dateStart && s.dateEnd
+                                ? Math.floor(
+                                      (s.dateEnd.getTime() -
+                                          s.dateStart.getTime()) /
+                                          1000
+                                  )
+                                : -1
                     }
                 })
-                .filter(s => s.duration > 0)
+                .filter((s) => s.duration > 0)
                 .toSorted((a, b) => a.duration - b.duration)
 
-            const fastestMember = fastest.length > 0 ? guild.members.cache.get(fastest[0].memberId) : null
+            const fastestMember =
+                fastest.length > 0
+                    ? guild.members.cache.get(fastest[0].memberId)
+                    : null
 
             return {
                 victories: victories.length,
                 defeats: defeats.length,
-                first: firstMember ? {
-                    memberId: first[0].memberId,
-                    name: firstMember.displayName,
-                    avatar: firstMember.displayAvatarURL({
-                        extension: 'webp',
-                        size: 64
-                    }),
-                    date: new Intl.DateTimeFormat('fr', { timeStyle: 'medium' }).format(new Date(first[0].date))
-                } : null,
-                fastest: fastestMember ? {
-                    memberId: fastest[0].memberId,
-                    name: fastestMember.displayName,
-                    avatar: fastestMember.displayAvatarURL({
-                        extension: 'webp',
-                        size: 64
-                    }),
-                    duration: this.formatDuration(fastest[0].duration)
-                } : null
+                first: firstMember
+                    ? {
+                          memberId: first[0].memberId,
+                          name: firstMember.displayName,
+                          avatar: firstMember.displayAvatarURL({
+                              extension: 'webp',
+                              size: 64
+                          }),
+                          date: new Intl.DateTimeFormat('fr', {
+                              timeStyle: 'medium'
+                          }).format(new Date(first[0].date))
+                      }
+                    : null,
+                fastest: fastestMember
+                    ? {
+                          memberId: fastest[0].memberId,
+                          name: fastestMember.displayName,
+                          avatar: fastestMember.displayAvatarURL({
+                              extension: 'webp',
+                              size: 64
+                          }),
+                          duration: this.formatDuration(fastest[0].duration)
+                      }
+                    : null
             }
         }
         return null
@@ -1202,7 +1246,7 @@ export class Rankedle {
     }
 
     // static async getSummary() {
-    //     const globalStatsData = await R_RankedleStatModel.findAll({
+    //     const globalStatsData = await RankedleStatModel.findAll({
     //         attributes: [
     //             'memberId',
     //             [ Sequelize.fn('sum', Sequelize.col('points')), 'totalPoints' ]
@@ -1240,7 +1284,7 @@ export class Rankedle {
 
     //     let season = null
 
-    //     const seasons = await R_RankedleSeasonModel.findAll({
+    //     const seasons = await RankedleSeasonModel.findAll({
     //         order: [
     //             [ 'id', 'asc' ]
     //         ],
@@ -1251,7 +1295,7 @@ export class Rankedle {
     //     if(prevSeason) {
     //         const seasonId = prevSeason.id
 
-    //         const seasonStatsData = await R_RankedleStatModel.findAll({
+    //         const seasonStatsData = await RankedleStatModel.findAll({
     //             where: { seasonId },
     //             raw: true
     //         })
@@ -1270,9 +1314,9 @@ export class Rankedle {
     //                 })
     //             }
 
-    //             const seasonScores = await R_RankedleScoreModel.findAll({
+    //             const seasonScores = await RankedleScoreModel.findAll({
     //                 include: {
-    //                     model: R_RankedleModel,
+    //                     model: RankedleModel,
     //                     required: false,
     //                     attributes: []
     //                 },

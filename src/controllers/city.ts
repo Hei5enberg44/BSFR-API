@@ -1,11 +1,11 @@
 import { OpenDataSoftAPI, DatasetRecordsQueryParams } from './opendatasoft.js'
 
 export class City {
-    private static dataset = 'geonames-all-cities-with-a-population-500'
+    private static dataset = 'geonames-all-cities-with-a-population-1000'
 
     static async getCityList(cityName: string) {
         const params: DatasetRecordsQueryParams = {
-            select: 'geoname_id, name, country, coordinates',
+            select: 'geoname_id, name, cou_name_en AS country, coordinates',
             where: `name LIKE \'%${cityName.replace("'", "\\'")}%\'`,
             include_links: false,
             include_app_metas: false,
@@ -26,7 +26,7 @@ export class City {
 
     static async getCityById(cityId: string) {
         const params: DatasetRecordsQueryParams = {
-            select: 'geoname_id, name, country, coordinates',
+            select: 'geoname_id, name, cou_name_en AS country, coordinates',
             where: `geoname_id = '${cityId}'`,
             include_links: false,
             include_app_metas: false,

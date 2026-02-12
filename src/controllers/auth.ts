@@ -1,104 +1,14 @@
 import jwt from 'jsonwebtoken'
-import crypto from 'node:crypto'
-import { RESTPostOAuth2AccessTokenResult } from 'discord-api-types/v10'
-import { UnsignResult } from '@fastify/cookie'
+import { FastifyRequest } from 'fastify'
 
 import { DiscordClient } from './discord.js'
-import { WS_SessionModel } from '../models/website.model.js'
 
+import { AppError } from '../utils/error.js'
 import Logger from '../utils/logger.js'
-import config from '../config.json' assert { type: 'json' }
-
-export class AuthError extends Error {
-    constructor(message: string) {
-        super(message)
-        this.name = 'AuthError'
-        Error.captureStackTrace(this, this.constructor)
-    }
-}
-
-export class AuthRegisterError extends AuthError {
-    token: RESTPostOAuth2AccessTokenResult
-
-    constructor(message: string, token: RESTPostOAuth2AccessTokenResult) {
-        super(message)
-        this.token = token
-        this.name = 'AuthRegisterError'
-        Error.captureStackTrace(this, this.constructor)
-
-        Logger.log(
-            'Auth',
-            'ERROR',
-            `${message} (token: ${JSON.stringify(token)})`
-        )
-    }
-}
-
-export class AuthNoSessionError extends AuthError {
-    constructor(message: string) {
-        super(message)
-        this.name = 'AuthNoSessionError'
-        Error.captureStackTrace(this, this.constructor)
-
-        Logger.log('Auth', 'ERROR', `${message}`)
-    }
-}
-
-export class AuthSessionNotFoundError extends AuthError {
-    sessionId: string
-
-    constructor(message: string, sessionId: string) {
-        super(message)
-        this.sessionId = sessionId
-        this.name = 'AuthSessionNotFoundError'
-        Error.captureStackTrace(this, this.constructor)
-
-        Logger.log('Auth', 'ERROR', `${message} (sessionId: ${sessionId})`)
-    }
-}
-
-export class AuthTokenNotFoundError extends AuthError {
-    constructor(message: string) {
-        super(message)
-        this.name = 'AuthTokenNotFoundError'
-        Error.captureStackTrace(this, this.constructor)
-
-        Logger.log('Auth', 'ERROR', message)
-    }
-}
-
-export class AuthSignTokenError extends AuthError {
-    userId: string
-
-    constructor(message: string, userId: string) {
-        super(message)
-        this.userId = userId
-        this.name = 'AuthSignTokenError'
-        Error.captureStackTrace(this, this.constructor)
-
-        Logger.log(
-            'Auth',
-            'ERROR',
-            `${message} (userId: ${JSON.stringify(userId)})`
-        )
-    }
-}
-
-export class AuthVerifyTokenError extends AuthError {
-    token: string
-
-    constructor(message: string, token: string) {
-        super(message)
-        this.token = token
-        this.name = 'AuthVerifyTokenError'
-        Error.captureStackTrace(this, this.constructor)
-
-        Logger.log('Auth', 'ERROR', `${message} (token: ${token})`)
-    }
-}
+import config from '../../config.json' with { type: 'json' }
 
 export class Auth {
-    private static async setToken(userId: string) {
+    public static async setToken(userId: string) {
         try {
             const t = (await new Promise((res, rej) => {
                 jwt.sign(
@@ -107,21 +17,19 @@ export class Auth {
                     { algorithm: 'HS256' },
                     (err, token) => {
                         if (err) rej(err)
-                        if (typeof token === 'undefined')
-                            rej(new Error('Impossible de créer le JWT'))
+                        if (typeof token === 'undefined') rej()
                         else res(token)
                     }
                 )
             })) as string
             return t
         } catch (error) {
-            if (error instanceof Error)
-                throw new AuthSignTokenError(error.message, userId)
-            else
-                throw new AuthSignTokenError(
-                    'Impossible de créer le JWT',
-                    userId
-                )
+            throw new AppError(
+                401,
+                'ERR_UNAUTHORIZED',
+                'Unauthorized',
+                'La signature du JWT a échouée'
+            )
         }
     }
 
@@ -130,67 +38,59 @@ export class Auth {
             const t = await new Promise((res, rej) => {
                 jwt.verify(token, config.app.jwt.secret, (err, decoded) => {
                     if (err) rej(err)
-                    if (typeof token === 'undefined')
-                        rej(new Error('Impossible de décoder le JWT'))
+                    if (typeof token === 'undefined') rej()
                     else res(decoded)
                 })
             })
             return t as string
         } catch (error) {
-            if (error instanceof Error)
-                throw new AuthVerifyTokenError(error.message, token)
-            else
-                throw new AuthVerifyTokenError(
-                    'Impossible de décoder le JWT',
-                    token
-                )
+            throw new AppError(
+                401,
+                'ERR_UNAUTHORIZED',
+                'Unauthorized',
+                'Le décodage du JWT à échoué'
+            )
         }
     }
 
-    public static async register(
-        token: RESTPostOAuth2AccessTokenResult
+    public static async login(
+        req: FastifyRequest,
+        code: string,
+        state: string
     ): Promise<string> {
         try {
+            const token = await DiscordClient.oauth2TokenExchange(code, state)
             const currentUser = await DiscordClient.getCurrentUser(token)
-
-            const sessionId = crypto.randomUUID()
-            const userToken = await this.setToken(currentUser.id)
-
-            await WS_SessionModel.create({
-                sessionId,
-                token: userToken
-            })
+            const sessionToken = await Auth.setToken(currentUser.id)
+            req.session.set('token', sessionToken)
+            await req.session.save()
 
             Logger.log(
                 'Auth',
                 'INFO',
                 `L'utilisateur ${currentUser.username} s'est connecté`
             )
-            return sessionId
+
+            return req.session.sessionId
         } catch (error) {
-            throw new AuthRegisterError('Authentification impossible', token)
+            throw new AppError(
+                401,
+                'ERR_UNAUTHORIZED',
+                'Unauthorized',
+                "Échec de l'authentification"
+            )
         }
     }
 
-    public static async check(sessionId: UnsignResult) {
-        if (sessionId.valid === false || sessionId.value === null)
-            throw new AuthNoSessionError('Cookie de session invalide')
-
-        const session = await WS_SessionModel.findOne({
-            where: {
-                sessionId: sessionId.value
-            }
-        })
-
-        if (!session)
-            throw new AuthSessionNotFoundError(
-                'Identifiant de session introuvable',
-                sessionId.value
+    public static async check(sessionToken: string | undefined) {
+        if (typeof sessionToken === 'undefined')
+            throw new AppError(
+                401,
+                'ERR_UNAUTHORIZED',
+                'Unauthorized',
+                'Vous devez être connecté pour accéder à cette ressource'
             )
-        if (!session.token)
-            throw new AuthTokenNotFoundError('Token de session invalide')
-
-        const userId = await this.decodeToken(session.token)
+        const userId = await this.decodeToken(sessionToken)
         return userId
     }
 }

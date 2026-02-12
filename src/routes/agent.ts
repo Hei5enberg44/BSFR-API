@@ -7,13 +7,13 @@ import { authCheck, requireAdmin } from './middlewares.js'
 import { Agent, AgentSettingData } from '../controllers/agent.js'
 
 import Logger from '../utils/logger.js'
-import config from '../config.json' assert { type: 'json' }
+import config from '../../config.json' with { type: 'json' }
 
 export default async (app: FastifyInstance) => {
     app.route({
         method: 'GET',
         url: '/guildChannels',
-        onRequest: [authCheck, requireAdmin],
+        preValidation: [authCheck, requireAdmin],
         handler: async (req, res) => {
             const channels = Agent.getGuildChannels(app.discord.guild)
             res.send(channels)
@@ -28,7 +28,7 @@ export default async (app: FastifyInstance) => {
                 channelId: z.string()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: [authCheck, requireAdmin],
         handler: async (req, res) => {
             const { channelId } = req.query
             const messages = await Agent.getChannelMessages(
@@ -50,7 +50,7 @@ export default async (app: FastifyInstance) => {
                 mention: z.boolean()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: [authCheck, requireAdmin],
         handler: async (req, res) => {
             const { channelId, messageId, content, mention } = req.body
             await Agent.sendMessage(
@@ -75,7 +75,7 @@ export default async (app: FastifyInstance) => {
                 native: z.boolean()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: [authCheck, requireAdmin],
         handler: async (req, res) => {
             const { channelId, messageId, emoji, native } = req.body
             await Agent.sendReaction(
@@ -92,7 +92,7 @@ export default async (app: FastifyInstance) => {
     app.route({
         method: 'GET',
         url: '/settings',
-        onRequest: [authCheck, requireAdmin],
+        preValidation: [authCheck, requireAdmin],
         handler: async (req, res) => {
             const settings = await Agent.getSettings()
             res.send(settings)
@@ -108,7 +108,7 @@ export default async (app: FastifyInstance) => {
                 data: z.custom<AgentSettingData>()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: [authCheck, requireAdmin],
         handler: async (req, res) => {
             const { name, data } = req.body
             await Agent.updateSetting(name, data)

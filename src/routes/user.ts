@@ -4,15 +4,15 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import z from 'zod'
 import sharp from 'sharp'
 
-import { DiscordClient, DiscordClientError } from '../controllers/discord.js'
-import { Auth, AuthError } from '../controllers/auth.js'
+import { DiscordClient } from '../controllers/discord.js'
+import { Auth } from '../controllers/auth.js'
 import { Settings, SettingsError } from '../controllers/settings.js'
-import { MemberCardStatus } from '../controllers/cubestalker.js'
+import { CardStatus } from '../models/cubestalker/card.model.js'
 import { authCheck, requireNitro } from './middlewares.js'
 
 import { Mime } from '../utils/mime.js'
 import Logger from '../utils/logger.js'
-import config from '../config.json' assert { type: 'json' }
+import config from '../../config.json' with { type: 'json' }
 
 export default async (app: FastifyInstance) => {
     app.withTypeProvider<ZodTypeProvider>().route({
@@ -36,7 +36,7 @@ export default async (app: FastifyInstance) => {
                 state
             }).toString()
 
-            res.send({ authUrl: `${authUrl}${options}` })
+            return { authUrl: `${authUrl}${options}` }
         }
     })
 
@@ -52,22 +52,8 @@ export default async (app: FastifyInstance) => {
         handler: async (req, res) => {
             try {
                 const { code, state } = req.body
-                const token = await DiscordClient.oauth2TokenExchange(
-                    code,
-                    state
-                )
-                const sessionId = await Auth.register(token)
-
-                res.setCookie('sessionId', sessionId, {
-                    expires: new Date(Date.now() + 86400 * 30 * 1000),
-                    path: '/',
-                    httpOnly: true,
-                    secure: true,
-                    sameSite: 'lax',
-                    signed: true
-                })
-
-                res.send()
+                await Auth.login(req, code, state)
+                return
             } catch (error) {
                 throw error
             }
@@ -75,44 +61,35 @@ export default async (app: FastifyInstance) => {
     })
 
     app.post('/logout', async (req, res) => {
-        res.clearCookie('sessionId')
-        res.send()
+        await req.session.destroy()
+        return
     })
 
-    app.get('/@me', async (req, res) => {
-        try {
-            const sessionId = req.cookies.sessionId
-            if (sessionId) {
-                const userId = await Auth.check(req.unsignCookie(sessionId))
-                const user = await DiscordClient.getUserData(
-                    app.discord.guild,
-                    userId
-                )
-                res.send(user)
-            } else {
-                res.send(null)
-            }
-        } catch (error) {
-            if (
-                error instanceof AuthError ||
-                error instanceof DiscordClientError
-            ) {
-                res.status(401).send({ message: error.message })
-            } else {
-                throw error
-            }
+    app.withTypeProvider<ZodTypeProvider>().route({
+        method: 'GET',
+        url: '/@me',
+        handler: async (req, res) => {
+            const sessionToken = req.session.get('token')
+            if (!sessionToken) return null
+
+            const userId = await Auth.check(req.session.get('token'))
+            const userData = await DiscordClient.getUserData(
+                app.discord.guild,
+                userId
+            )
+            return userData
         }
     })
 
     app.withTypeProvider<ZodTypeProvider>().route({
         method: 'GET',
         url: '/birthday',
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             try {
                 const userData = req.userData
                 const date = await Settings.getBirthday(userData.id)
-                res.send({ date })
+                return { date }
             } catch (error) {
                 if (error instanceof SettingsError) {
                     res.status(500).send({ message: error.message })
@@ -131,7 +108,7 @@ export default async (app: FastifyInstance) => {
                 date: z.nullable(z.string())
             })
         },
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             try {
                 const { date } = req.body
@@ -142,7 +119,7 @@ export default async (app: FastifyInstance) => {
                     'INFO',
                     `L'utilisateur ${userData.username} a mis à jour sa date de naissance`
                 )
-                res.send()
+                return { date }
             } catch (error) {
                 if (error instanceof SettingsError) {
                     res.status(500).send({ message: error.message })
@@ -156,16 +133,17 @@ export default async (app: FastifyInstance) => {
     app.route({
         method: 'GET',
         url: '/roles',
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             try {
                 const userData = req.userData
                 const member = app.discord.guild.members.cache.get(userData.id)
                 const roles = member ? await Settings.getRoles(member) : []
-                res.send(roles)
+                return roles
             } catch (error) {
                 if (error instanceof SettingsError) {
-                    res.status(500).send({ message: error.message })
+                    res.status(500)
+                    return { message: error.message }
                 } else {
                     throw error
                 }
@@ -181,7 +159,7 @@ export default async (app: FastifyInstance) => {
                 roles: z.array(z.string())
             })
         },
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             try {
                 const { roles } = req.body
@@ -195,10 +173,11 @@ export default async (app: FastifyInstance) => {
                         `L'utilisateur ${userData.username} a mis à jour ses rôles`
                     )
                 }
-                res.send()
+                return
             } catch (error) {
                 if (error instanceof SettingsError) {
-                    res.status(500).send({ message: error.message })
+                    res.status(500)
+                    return { message: error.message }
                 } else {
                     throw error
                 }
@@ -209,21 +188,16 @@ export default async (app: FastifyInstance) => {
     app.route({
         method: 'GET',
         url: '/city',
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             try {
                 const userData = req.userData
                 const city = await Settings.getCity(userData.id)
-                res.send(
-                    city
-                        ? {
-                              name: `${city.commune} (${city.pays})`
-                          }
-                        : null
-                )
+                return city ? { name: `${city.city} (${city.country})` } : null
             } catch (error) {
                 if (error instanceof SettingsError) {
-                    res.status(500).send({ message: error.message })
+                    res.status(500)
+                    return { message: error.message }
                 } else {
                     throw error
                 }
@@ -244,7 +218,7 @@ export default async (app: FastifyInstance) => {
                 )
             })
         },
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             try {
                 const { city } = req.body
@@ -255,7 +229,7 @@ export default async (app: FastifyInstance) => {
                     'INFO',
                     `L'utilisateur ${userData.username} a mis à jour sa ville`
                 )
-                res.send()
+                return
             } catch (error) {
                 if (error instanceof SettingsError) {
                     res.status(500).send({ message: error.message })
@@ -274,16 +248,17 @@ export default async (app: FastifyInstance) => {
                 s: z.string()
             })
         },
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             try {
                 const search = req.query.s
                 const result =
                     search.length >= 3 ? await Settings.searchCity(search) : []
-                res.send(result)
+                return result
             } catch (error) {
                 if (error instanceof SettingsError) {
-                    res.status(500).send({ message: error.message })
+                    res.status(500)
+                    return { message: error.message }
                 } else {
                     throw error
                 }
@@ -294,17 +269,18 @@ export default async (app: FastifyInstance) => {
     app.route({
         method: 'GET',
         url: '/twitchChannel',
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             try {
                 const userData = req.userData
                 const twitchChannel = await Settings.getTwitchChannel(
                     userData.id
                 )
-                res.send(twitchChannel)
+                return twitchChannel
             } catch (error) {
                 if (error instanceof SettingsError) {
-                    res.status(500).send({ message: error.message })
+                    res.status(500)
+                    return { message: error.message }
                 } else {
                     throw error
                 }
@@ -320,7 +296,7 @@ export default async (app: FastifyInstance) => {
                 channelName: z.nullable(z.string())
             })
         },
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             try {
                 const { channelName } = req.body
@@ -331,10 +307,11 @@ export default async (app: FastifyInstance) => {
                     'INFO',
                     `L'utilisateur ${userData.username} a mis à jour sa chaîne Twitch`
                 )
-                res.send()
+                return
             } catch (error) {
                 if (error instanceof SettingsError) {
-                    res.status(500).send({ message: error.message })
+                    res.status(500)
+                    return { message: error.message }
                 } else {
                     throw error
                 }
@@ -350,7 +327,7 @@ export default async (app: FastifyInstance) => {
                 memberId: z.string().optional()
             })
         },
-        onRequest: [authCheck, requireNitro],
+        preValidation: requireNitro,
         handler: async (req, res) => {
             try {
                 const userData = req.userData
@@ -359,10 +336,11 @@ export default async (app: FastifyInstance) => {
                     memberId
                 ) as GuildMember
                 const card = await Settings.getCubeStalkerCard(member)
-                res.send(card)
+                return card
             } catch (error) {
                 if (error instanceof SettingsError) {
-                    res.status(500).send({ message: error.message })
+                    res.status(500)
+                    return { message: error.message }
                 } else {
                     throw error
                 }
@@ -379,7 +357,7 @@ export default async (app: FastifyInstance) => {
             })
         },
         attachValidation: true,
-        onRequest: [authCheck, requireNitro],
+        preValidation: requireNitro,
         handler: async (req, res) => {
             try {
                 const userData = req.userData
@@ -393,9 +371,9 @@ export default async (app: FastifyInstance) => {
                 let memberCardImage = req.body.memberCardImage
                 const fileType = await Mime.getMimeType(memberCardImage)
 
-                if (!fileType?.match(/^image\/(jpe?g|png|webp)$/))
+                if (!fileType?.mime.match(/^image\/(jpe?g|png|webp)$/))
                     throw new Error(
-                        'Type de fichier invalide, types de fichier autorisés: .jpg,.png,.webp'
+                        'Type de fichier invalide, types de fichier autorisés: .jpg, .png, .webp'
                     )
 
                 if (memberCardImage.byteLength > 5242880)
@@ -403,7 +381,7 @@ export default async (app: FastifyInstance) => {
                         'Fichier trop lourd, la taille maximale autorisée est de 5 Mo'
                     )
 
-                if (fileType !== 'image/png')
+                if (fileType?.mime !== 'image/png')
                     memberCardImage = await sharp(memberCardImage)
                         .png()
                         .resize(1900)
@@ -413,10 +391,11 @@ export default async (app: FastifyInstance) => {
                     member,
                     memberCardImage
                 )
-                res.send(card)
+                return card
             } catch (error) {
                 if (error instanceof SettingsError) {
-                    res.status(500).send({ message: error.message })
+                    res.status(500)
+                    return { message: error.message }
                 } else {
                     throw error
                 }
@@ -427,16 +406,16 @@ export default async (app: FastifyInstance) => {
     app.route({
         method: 'POST',
         url: '/card',
-        onRequest: [authCheck, requireNitro],
+        preValidation: requireNitro,
         handler: async (req, res) => {
             try {
                 const userData = req.userData
                 const status = userData.isAdmin
-                    ? MemberCardStatus.Approved
-                    : MemberCardStatus.Pending
+                    ? CardStatus.Approved
+                    : CardStatus.Pending
                 const cardStatus = await Settings.getCardStatus(userData.id)
 
-                if (cardStatus !== null && cardStatus === MemberCardStatus.Preview) {
+                if (cardStatus !== null && cardStatus === CardStatus.Preview) {
                     const cardId = await Settings.updateCardStatus(
                         userData.id,
                         status
@@ -455,10 +434,11 @@ export default async (app: FastifyInstance) => {
                         )
                     }
                 }
-                res.send()
+                return
             } catch (error) {
                 if (error instanceof SettingsError) {
-                    res.status(500).send({ message: error.message })
+                    res.status(500)
+                    return { message: error.message }
                 } else {
                     throw error
                 }
@@ -469,18 +449,16 @@ export default async (app: FastifyInstance) => {
     app.route({
         method: 'DELETE',
         url: '/card',
-        onRequest: [authCheck, requireNitro],
+        preValidation: requireNitro,
         handler: async (req, res) => {
             try {
                 const userData = req.userData
-                await Settings.updateCardStatus(
-                    userData.id,
-                    MemberCardStatus.Preview
-                )
-                res.send()
+                await Settings.updateCardStatus(userData.id, CardStatus.Preview)
+                return
             } catch (error) {
                 if (error instanceof SettingsError) {
-                    res.status(500).send({ message: error.message })
+                    res.status(500)
+                    return { message: error.message }
                 } else {
                     throw error
                 }

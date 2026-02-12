@@ -60,27 +60,28 @@ export const filter = <T extends { [key: string]: any }>(
         const fieldValue = d as any
 
         if (typeof value === 'string') {
+            if (value.trim() === '') return true
             // Filtre d'une chaîne de caractères
             if (typeof fieldValue === 'string') {
-                const fieldString = fieldValue
+                const fieldString = fieldValue.toLowerCase()
                 switch (matchMode) {
                     case 'contains':
-                        match = fieldString.includes(value)
+                        match = fieldString.includes(value.toLowerCase())
                         break
                     case 'startsWith':
-                        match = fieldString.startsWith(value)
+                        match = fieldString.startsWith(value.toLowerCase())
                         break
                     case 'notContains':
-                        match = !fieldString.includes(value)
+                        match = !fieldString.includes(value.toLowerCase())
                         break
                     case 'endsWith':
-                        match = fieldString.endsWith(value)
+                        match = fieldString.endsWith(value.toLowerCase())
                         break
                     case 'equals':
-                        match = fieldString === value
+                        match = fieldString === value.toLowerCase()
                         break
                     case 'notEquals':
-                        match = fieldString !== value
+                        match = fieldString !== value.toLowerCase()
                         break
                 }
             }

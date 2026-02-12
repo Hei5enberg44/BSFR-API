@@ -1,16 +1,24 @@
 {
     "compilerOptions": {
-        "module": "NodeNext",
-        "target": "ESNext",
-        "moduleResolution": "NodeNext",
-        "noImplicitAny": true,
-        "removeComments": true,
-        "preserveConstEnums": true,
-        "sourceMap": false,
-        "noEmitOnError": true,
+        "strict": true,
+        "baseUrl": "src",
+        "rootDir": "src",
         "outDir": "dist",
+        "target": "ESNext",
+        "module": "NodeNext",
+        "moduleResolution": "nodenext",
+        "declaration": false,
         "resolveJsonModule": true,
-        "strict": true
+        "allowUnreachableCode": false,
+        "importHelpers": true,
+        "experimentalDecorators": true,
+        "useUnknownInCatchVariables": false,
+        "skipLibCheck": true,
+        "removeComments": false,
+        "noEmitOnError": true,
+        "typeRoots": ["node_modules/@types"],
+        "sourceMap": false
     },
-    "include": ["src/**/*"]
+    "include": ["src/**/*"],
+    "exclude": ["dist", "node_modules", "tests"]
 }

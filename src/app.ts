@@ -1,20 +1,28 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
+import session from '@fastify/session'
+import sequelizeSession from 'connect-session-sequelize'
 import multipart from '@fastify/multipart'
+import rateLimit from '@fastify/rate-limit'
 import {
     serializerCompiler,
     validatorCompiler
 } from 'fastify-type-provider-zod'
-import { CronJob } from 'cron'
-import { Rankedle } from './controllers/rankedle.js'
 import { Client, GatewayIntentBits, Guild, Partials } from 'discord.js'
 import { UserData } from './controllers/discord.js'
 
-import config from './config.json' assert { type: 'json' }
+// Databases
+import { agentDB } from './databases/agent.database.js'
+import { cubestalkerDB } from './databases/cubestalker.database.js'
+import { rankedleDB } from './databases/rankedle.database.js'
+import { websiteDB, websiteDBLegacy } from './databases/website.database.js'
+
+import config from '../config.json' with { type: 'json' }
 import Logger from './utils/logger.js'
 
 // Routes
+import bsRoutes from './routes/beatsaber.js'
 import userRoutes from './routes/user.js'
 import mapRoutes from './routes/map.js'
 import youtubeRoutes from './routes/youtube.js'
@@ -33,14 +41,17 @@ declare module 'fastify' {
         fastify: FastifyInstance
         userData: UserData
     }
+    interface Session {
+        token: string
+    }
 }
 
 const app = Fastify()
 
 // CORS
-app.register(cors, {
+await app.register(cors, {
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    origin: ['https://bsaber.fr', 'https://bsaber.weezle.xyz']
+    origin: ['https://beatsaber.fr', 'https://dev.beatsaber.fr']
 })
 
 // Schema validator and serializer
@@ -48,20 +59,46 @@ app.setValidatorCompiler(validatorCompiler)
 app.setSerializerCompiler(serializerCompiler)
 
 // Cookies
-app.register(cookie, {
-    secret: config.app.cookie.secret,
-    hook: 'onRequest'
+await app.register(cookie)
+
+// Sessions
+const SequelizeStore = sequelizeSession(session.Store)
+const sessionStore = new SequelizeStore({
+    db: websiteDBLegacy
 })
+await websiteDB.authenticate()
+await app.register(session, {
+    secret: config.app.cookie.secret,
+    cookieName: 'sid',
+    cookie: {
+        path: '/',
+        maxAge: 60 * 60 * 24 * 30 * 1000, // 30 days,
+        httpOnly: true,
+        secure: true,
+        sameSite: 'lax'
+    },
+    store: sessionStore
+})
+await sessionStore.sync()
 
 // File upload
-app.register(multipart, {
+await app.register(multipart, {
     attachFieldsToBody: 'keyValues',
     limits: {
         fileSize: 1024 * 1024 * 1024 * 3
     }
 })
 
+// Rate limit
+await app.register(rateLimit, {
+    hook: 'onRequest',
+    max: 100,
+    timeWindow: '30 seconds',
+    allowList: ['127.0.0.1', '::1']
+})
+
 // Routes registrations
+app.register(bsRoutes, { prefix: '/beatsaber' })
 app.register(userRoutes, { prefix: '/user' })
 app.register(mapRoutes, { prefix: '/map' })
 app.register(youtubeRoutes, { prefix: '/youtube' })
@@ -84,7 +121,7 @@ const client = new Client({
         GatewayIntentBits.DirectMessageReactions,
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildModeration,
-        GatewayIntentBits.GuildEmojisAndStickers,
+        GatewayIntentBits.GuildExpressions,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMessageReactions,
@@ -100,8 +137,8 @@ const client = new Client({
     }
 })
 
-client.once('ready', async () => {
-    const guild = await client.guilds.fetch(config.discord.guild_id)
+client.once('clientReady', async () => {
+    const guild = await client.guilds.fetch(config.discord.guild.id)
     await guild.members.fetch()
     await guild.channels.fetch()
     await guild.roles.fetch()
@@ -109,26 +146,21 @@ client.once('ready', async () => {
     await guild.emojis.fetch()
 })
 
-client.login(config.discord.bot_token).then(() => {
-    const guild = client.guilds.cache.get(config.discord.guild_id) as Guild
+client.login(config.discord.bot_token).then(async () => {
+    const guild = client.guilds.cache.get(config.discord.guild.id) as Guild
 
     app.decorate('discord', {
         guild
     })
 
-    app.listen({ port: config.app.port }, async (err, address) => {
+    // Connect to databases
+    await agentDB.authenticate()
+    await cubestalkerDB.authenticate()
+    await rankedleDB.authenticate()
+    await websiteDB.authenticate()
+
+    app.listen({ port: config.app.port }, (err, address) => {
         if (err) Logger.log('Init', 'ERROR', err.message)
         else Logger.log('Init', 'INFO', 'API démarrée')
-
-        new CronJob(
-            '*/30 * * * *',
-            async () => {
-                await Rankedle.generateRankedle()
-                await Rankedle.updateRankedland(guild)
-            },
-            null,
-            true,
-            'Europe/Paris'
-        )
     })
 })

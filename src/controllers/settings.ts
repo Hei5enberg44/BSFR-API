@@ -1,16 +1,10 @@
-import { Sequelize } from 'sequelize'
-import {
-    A_BirthdayModel,
-    A_RoleModel,
-    A_RolesCategorieModel,
-    A_CityModel,
-    A_TwitchModel
-} from '../models/agent.model.js'
-import {
-    CS_CardModel,
-    CS_LeaderboardModel,
-    CS_PlayerModel
-} from '../models/cubestalker.model.js'
+import { BirthdayModel } from '../models/agent/birthday.model.js'
+import { RoleModel } from '../models/agent/role.model.js'
+import { RoleCategorieModel } from '../models/agent/roleCategorie.model.js'
+import { CityModel } from '../models/agent/city.model.js'
+import { TwitchModel } from '../models/agent/twitch.model.js'
+import { CardModel } from '../models/cubestalker/card.model.js'
+import { PlayerModel } from '../models/cubestalker/player.model.js'
 import {
     EmbedBuilder,
     userMention,
@@ -20,25 +14,14 @@ import {
     GuildMember
 } from 'discord.js'
 import { City } from './city.js'
-import {
-    GameLeaderboard,
-    Leaderboards,
-    PlayerData,
-    PlayerProgress,
-    PlayerRanking
-} from './bsleaderboard.js'
-import { Leaderboard } from './leaderboard.js'
-import { CubeStalker, MemberCardStatus } from './cubestalker.js'
-import config from '../config.json' assert { type: 'json' }
-import Logger from '../utils/logger.js'
+import { GameLeaderboard, Leaderboards } from './gameLeaderboard.js'
+import { PlayerData } from '../interfaces/player.interface.js'
+import { CubeStalker } from './cubestalker.js'
+import { CardStatus } from '../models/cubestalker/card.model.js'
 
-interface RoleModelWithCategoryName {
-    id: number
-    categoryId: number
-    name: string
-    multiple: boolean
-    categoryName: string
-}
+import { AppError } from '../utils/error.js'
+import config from '../../config.json' with { type: 'json' }
+import Logger from '../utils/logger.js'
 
 interface UserRole {
     categoryName: string
@@ -65,7 +48,7 @@ export class SettingsError extends Error {
 
 export class Settings {
     public static async getBirthday(memberId: string) {
-        const userBirthday = await A_BirthdayModel.findOne({
+        const userBirthday = await BirthdayModel.findOne({
             where: { memberId },
             raw: true
         })
@@ -76,7 +59,7 @@ export class Settings {
 
     public static async setBirthday(memberId: string, date: string | null) {
         if (date !== null) {
-            const userBirthday = await A_BirthdayModel.findOne({
+            const userBirthday = await BirthdayModel.findOne({
                 where: { memberId }
             })
 
@@ -84,13 +67,13 @@ export class Settings {
                 userBirthday.date = date
                 await userBirthday.save()
             } else {
-                await A_BirthdayModel.create({
+                await BirthdayModel.create({
                     memberId,
                     date
                 })
             }
         } else {
-            await A_BirthdayModel.destroy({
+            await BirthdayModel.destroy({
                 where: { memberId }
             })
         }
@@ -99,50 +82,27 @@ export class Settings {
     public static async getRoles(member: GuildMember) {
         const memberRoles = member.roles.cache
 
-        const roleList = (await A_RoleModel.findAll({
-            include: [
-                {
-                    model: A_RolesCategorieModel,
-                    attributes: []
-                }
-            ],
-            attributes: [
-                'id',
-                'name',
-                'multiple',
-                [Sequelize.literal('`roles_category`.`name`'), 'categoryName']
-            ],
-            raw: true
-        })) as unknown as RoleModelWithCategoryName[]
+        const roleCategoryList = await RoleCategorieModel.findAll()
 
         const userRoleList: UserRole[] = []
-        for (const role of roleList) {
-            const category = userRoleList.find(
-                (rl) => rl.categoryName === role.categoryName
-            )
-            const checked = memberRoles.find((mr) => mr.name === role.name)
-                ? true
-                : false
-            if (!category) {
-                userRoleList.push({
-                    categoryName: role.categoryName,
-                    roles: [
-                        {
-                            id: role.id,
-                            name: role.name,
-                            multiple: role.multiple,
-                            checked
-                        }
-                    ]
+        for (const roleCategory of roleCategoryList) {
+            const categoryRoles = await roleCategory.getRoles()
+            userRoleList.push({
+                categoryName: roleCategory.name,
+                roles: categoryRoles.map((cr) => {
+                    const checked = memberRoles.find(
+                        (mr) => mr.name === cr.name
+                    )
+                        ? true
+                        : false
+                    return {
+                        id: cr.id,
+                        name: cr.name,
+                        multiple: cr.multiple,
+                        checked
+                    }
                 })
-            } else {
-                category.roles.push({
-                    id: role.id,
-                    name: role.name,
-                    multiple: role.multiple,
-                    checked
-                })
-            }
+            })
         }
 
         return userRoleList
@@ -150,34 +110,25 @@ export class Settings {
 
     public static async setRoles(member: GuildMember, roles: string[]) {
         const guildRoles = member.guild.roles.cache
-        const roleList = (await A_RoleModel.findAll({
+        const roleList = await RoleModel.findAll({
             include: [
                 {
-                    model: A_RolesCategorieModel,
-                    attributes: []
+                    association: 'category',
+                    required: true
                 }
-            ],
-            attributes: [
-                'id',
-                'categoryId',
-                'name',
-                'multiple',
-                [Sequelize.literal('`roles_category`.`name`'), 'categoryName']
-            ],
-            raw: true
-        })) as unknown as RoleModelWithCategoryName[]
+            ]
+        })
         const assignableRoles = guildRoles.filter((gr) =>
             roleList.find((rl) => rl.name === gr.name)
         )
         const currentMemberRoles = member.roles.cache.filter(
-            (ur) => !assignableRoles.find((ar) => ar.id === ur.id)
+            (mr) => !assignableRoles.find((ar) => ar.id === mr.id)
         )
-
         const newUserRoles = assignableRoles.filter((ar) => {
             return roles.find((r) => r === ar.name)
         })
 
-        const check: RoleModelWithCategoryName[] = []
+        const check: RoleModel[] = []
         for (const [, role] of newUserRoles) {
             const _role = roleList.find((r) => r.name === role.name)
             if (typeof _role !== 'undefined') {
@@ -189,15 +140,21 @@ export class Settings {
                             c.categoryId === _role.categoryId
                     )
                 ) {
-                    throw new SettingsError(
-                        `Vous pouvez vous assigner qu'un seul rôle pour la catégorie « ${_role.categoryName} »`
+                    throw new AppError(
+                        400,
+                        'ERR_VALIDATION',
+                        'Bad Request',
+                        `Vous pouvez vous assigner qu'un seul rôle pour la catégorie « ${_role.category.name} »`
                     )
                 } else {
                     check.push(_role)
                 }
             } else {
-                throw new SettingsError(
-                    'Impossible de mettre à jour les rôles.'
+                throw new AppError(
+                    400,
+                    'ERR_VALIDATION',
+                    'Bad Request',
+                    'Impossible de mettre à jour les rôles'
                 )
             }
         }
@@ -207,7 +164,7 @@ export class Settings {
     }
 
     public static async getCity(memberId: string) {
-        const city = await A_CityModel.findOne({
+        const city = await CityModel.findOne({
             where: { memberId },
             raw: true
         })
@@ -218,27 +175,32 @@ export class Settings {
         if (city !== null) {
             const cityData = await City.getCityById(city.id)
             if (cityData.length === 0)
-                throw new SettingsError('Ville introuvable')
+                throw new AppError(
+                    400,
+                    'ERR_VALIDATION',
+                    'Bad Request',
+                    'Ville introuvable'
+                )
 
-            const userCity = await A_CityModel.findOne({
+            const userCity = await CityModel.findOne({
                 where: { memberId }
             })
 
             if (!userCity) {
-                await A_CityModel.create({
+                await CityModel.create({
                     memberId,
-                    pays: cityData[0].country,
-                    commune: cityData[0].name,
-                    coordonnees_gps: `${cityData[0].coordinates.lat},${cityData[0].coordinates.lon}`
+                    country: cityData[0].country,
+                    city: cityData[0].name,
+                    coordinates: `${cityData[0].coordinates.lat},${cityData[0].coordinates.lon}`
                 })
             } else {
-                userCity.pays = cityData[0].country
-                userCity.commune = cityData[0].name
-                userCity.coordonnees_gps = `${cityData[0].coordinates.lat},${cityData[0].coordinates.lon}`
+                userCity.country = cityData[0].country
+                userCity.city = cityData[0].name
+                userCity.coordinates = `${cityData[0].coordinates.lat},${cityData[0].coordinates.lon}`
                 await userCity.save()
             }
         } else {
-            await A_CityModel.destroy({
+            await CityModel.destroy({
                 where: { memberId }
             })
         }
@@ -250,7 +212,7 @@ export class Settings {
     }
 
     public static async getTwitchChannel(memberId: string) {
-        const twitch = await A_TwitchModel.findOne({
+        const twitch = await TwitchModel.findOne({
             where: { memberId },
             raw: true
         })
@@ -266,12 +228,12 @@ export class Settings {
         channelName: string | null
     ) {
         if (channelName !== null) {
-            const userTwitch = await A_TwitchModel.findOne({
+            const userTwitch = await TwitchModel.findOne({
                 where: { memberId }
             })
 
             if (!userTwitch) {
-                await A_TwitchModel.create({
+                await TwitchModel.create({
                     memberId,
                     channelName,
                     live: false,
@@ -284,7 +246,7 @@ export class Settings {
                 await userTwitch.save()
             }
         } else {
-            await A_TwitchModel.destroy({
+            await TwitchModel.destroy({
                 where: { memberId }
             })
         }
@@ -298,10 +260,10 @@ export class Settings {
             await CubeStalker.setMemberCard(
                 member.id,
                 memberCardImage,
-                MemberCardStatus.Preview
+                CardStatus.Preview
             )
 
-        const playerProfiles = await CS_PlayerModel.findAll({
+        const playerProfiles = await PlayerModel.findAll({
             where: { memberId: member.id },
             raw: true
         })
@@ -309,100 +271,18 @@ export class Settings {
         const currentPlayerData =
             playerProfiles.length > 0 ? playerProfiles[0] : null
         if (currentPlayerData) {
-            const leaderboard =
-                currentPlayerData.leaderboard === 'scoresaber'
-                    ? Leaderboards.ScoreSaber
-                    : Leaderboards.BeatLeader
-            const bsLeaderboard = new GameLeaderboard(leaderboard)
+            const leaderboard = currentPlayerData.leaderboard as Leaderboards
+            const ld = new GameLeaderboard(leaderboard)
 
-            const playerData = await bsLeaderboard.requests.getPlayerData(
+            const playerData = await ld.requests.getPlayerData(
                 currentPlayerData.playerId
             )
-            const oldPlayerLd = await Leaderboard.getPlayer(
-                leaderboard,
-                member.id
-            )
-            const playerLd: PlayerRanking = {
-                pp: playerData.pp,
-                averageRankedAccuracy: playerData.averageRankedAccuracy,
-                rank: playerData.rank,
-                countryRank: playerData.countryRank,
-                serverRankPP: 0,
-                serverRankAcc: 0,
-                serverLdTotal: 0
-            }
-
-            let playerProgress: PlayerProgress | null = null
-            if (oldPlayerLd) {
-                playerProgress = {
-                    rankDiff: playerLd.rank - oldPlayerLd.rank,
-                    countryRankDiff:
-                        playerLd.countryRank - oldPlayerLd.countryRank,
-                    ppDiff: playerLd.pp - oldPlayerLd.pp,
-                    accDiff: parseFloat(
-                        (
-                            parseFloat(
-                                playerLd.averageRankedAccuracy.toFixed(2)
-                            ) -
-                            parseFloat(
-                                oldPlayerLd.averageRankedAccuracy.toFixed(2)
-                            )
-                        ).toFixed(2)
-                    ),
-                    serverPPDiff: 0,
-                    serverAccDiff: 0
-                }
-
-                const ld = await CS_LeaderboardModel.findAll({
-                    where: { leaderboard: currentPlayerData.leaderboard },
-                    order: [['pp', 'ASC']],
-                    raw: true
-                })
-
-                const _playerLd = ld.find((l) => l.playerId === playerData.id)
-                if (_playerLd) {
-                    _playerLd.pp = playerData.pp
-                    _playerLd.averageRankedAccuracy =
-                        playerData.averageRankedAccuracy
-
-                    const serverRankPP = ld
-                        .sort((a, b) => b.pp - a.pp)
-                        .findIndex(
-                            (ld) =>
-                                ld.playerId === playerData.id &&
-                                ld.leaderboard === currentPlayerData.leaderboard
-                        )
-                    const serverRankAcc = ld
-                        .sort(
-                            (a, b) =>
-                                b.averageRankedAccuracy -
-                                a.averageRankedAccuracy
-                        )
-                        .findIndex(
-                            (ld) =>
-                                ld.playerId === playerData.id &&
-                                ld.leaderboard === currentPlayerData.leaderboard
-                        )
-
-                    if (serverRankPP !== -1 && serverRankAcc !== -1) {
-                        playerProgress.serverPPDiff =
-                            serverRankPP + 1 - oldPlayerLd.serverRankPP
-                        playerProgress.serverAccDiff =
-                            serverRankAcc + 1 - oldPlayerLd.serverRankAcc
-                    }
-
-                    playerLd.serverRankPP = serverRankPP + 1
-                    playerLd.serverRankAcc = serverRankAcc + 1
-                    playerLd.serverLdTotal = ld.length
-                }
-            }
 
             const card = await CubeStalker.getCard(
                 leaderboard,
                 member,
                 playerData,
-                playerLd,
-                playerProgress,
+                null,
                 memberCardImage
             )
 
@@ -417,46 +297,36 @@ export class Settings {
                 url: '',
                 rank: 1,
                 countryRank: 1,
-                pp: 727,
+                points: 727,
                 country: 'FR',
                 history: '',
+                inactive: false,
                 banned: false,
                 averageRankedAccuracy: 69,
-                topPP: null
+                topScore: null
             }
-            const playerLd: PlayerRanking = {
-                pp: playerData.pp,
-                averageRankedAccuracy: playerData.averageRankedAccuracy,
-                rank: playerData.rank,
-                countryRank: playerData.countryRank,
-                serverRankPP: 0,
-                serverRankAcc: 0,
-                serverLdTotal: 0
-            }
+
             const card = await CubeStalker.getCard(
                 leaderboard,
                 member,
                 playerData,
-                playerLd,
                 null,
                 memberCardImage
             )
+
             return card
         }
     }
 
     public static async getCardStatus(memberId: string) {
-        const card = await CS_CardModel.findOne({
+        const card = await CardModel.findOne({
             where: { memberId }
         })
         return card ? card.status : null
     }
 
-    public static async updateCardStatus(
-        memberId: string,
-        status: MemberCardStatus
-    ) {
-        const card = await CS_CardModel.findOne({
+    public static async updateCardStatus(memberId: string, status: CardStatus) {
+        const card = await CardModel.findOne({
             where: { memberId }
         })
         if (card) {
@@ -495,7 +365,7 @@ export class Settings {
 
         await (
             guild.channels.cache.get(
-                config.discord.channels.logs
+                config.discord.guild.channels.logs
             ) as TextChannel
         ).send({
             embeds: [embed]
@@ -529,7 +399,7 @@ export class Settings {
 
         const guild = member.guild
         const logsChannel = guild.channels.cache.get(
-            config.discord.channels.logs
+            config.discord.guild.channels.logs
         ) as TextChannel
         try {
             await logsChannel.send({ embeds: [embed] })

@@ -2,16 +2,16 @@ import { FastifyInstance } from 'fastify'
 import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import z from 'zod'
 
-import { authCheck, requireAdmin } from './middlewares.js'
+import { requireAdmin } from './middlewares.js'
 
 import { formatEmoji } from 'discord.js'
 
 import { Admin } from '../controllers/admin.js'
 import { Settings } from '../controllers/settings.js'
-import { MemberCardStatus } from '../controllers/cubestalker.js'
+import { CardStatus } from '../models/cubestalker/card.model.js'
 
 import Logger from '../utils/logger.js'
-import config from '../config.json' assert { type: 'json' }
+import config from '../../config.json' with { type: 'json' }
 
 export default async (app: FastifyInstance) => {
     app.withTypeProvider<ZodTypeProvider>().route({
@@ -26,7 +26,7 @@ export default async (app: FastifyInstance) => {
                 filters: z.string()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: requireAdmin,
         handler: async (req, res) => {
             const { first, rows, sortField, sortOrder, filters } = req.query
             const birthdays = await Admin.getBirthdays(
@@ -53,7 +53,7 @@ export default async (app: FastifyInstance) => {
                 filters: z.string()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: requireAdmin,
         handler: async (req, res) => {
             const { first, rows, sortField, sortOrder, filters } = req.query
             const mutes = await Admin.getMutes(
@@ -80,7 +80,7 @@ export default async (app: FastifyInstance) => {
                 filters: z.string()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: requireAdmin,
         handler: async (req, res) => {
             const { first, rows, sortField, sortOrder, filters } = req.query
             const bans = await Admin.getBans(
@@ -107,7 +107,7 @@ export default async (app: FastifyInstance) => {
                 filters: z.string()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: requireAdmin,
         handler: async (req, res) => {
             const { first, rows, sortField, sortOrder, filters } = req.query
             const birthdayMessages = await Admin.getBirthdayMessages(
@@ -130,7 +130,7 @@ export default async (app: FastifyInstance) => {
                 message: z.string()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: requireAdmin,
         handler: async (req, res) => {
             const { message } = req.body
             const userData = req.userData
@@ -153,7 +153,7 @@ export default async (app: FastifyInstance) => {
                 message: z.string()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: requireAdmin,
         handler: async (req, res) => {
             const { id, message } = req.body
             const userData = req.userData
@@ -175,7 +175,7 @@ export default async (app: FastifyInstance) => {
                 id: z.number()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: requireAdmin,
         handler: async (req, res) => {
             const { id } = req.body
             const userData = req.userData
@@ -201,7 +201,7 @@ export default async (app: FastifyInstance) => {
                 filters: z.string()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: requireAdmin,
         handler: async (req, res) => {
             const { first, rows, sortField, sortOrder, filters } = req.query
             const twitchChannels = await Admin.getTwitchChannels(
@@ -228,7 +228,7 @@ export default async (app: FastifyInstance) => {
                 filters: z.string()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: requireAdmin,
         handler: async (req, res) => {
             const { first, rows, sortField, sortOrder, filters } = req.query
             const requests = await Admin.getCubeStalkerRequests(
@@ -251,7 +251,7 @@ export default async (app: FastifyInstance) => {
                 id: z.coerce.number()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: requireAdmin,
         handler: async (req, res) => {
             const { id } = req.query
             const request = await Admin.getCubeStalkerRequest(
@@ -270,12 +270,12 @@ export default async (app: FastifyInstance) => {
                 memberId: z.string()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: requireAdmin,
         handler: async (req, res) => {
             const { memberId } = req.body
             const requestId = await Settings.updateCardStatus(
                 memberId,
-                MemberCardStatus.Denied
+                CardStatus.Denied
             )
             const member = app.discord.guild.members.cache.get(memberId)
             if (requestId && member) {
@@ -298,12 +298,12 @@ export default async (app: FastifyInstance) => {
                 memberId: z.string()
             })
         },
-        onRequest: [authCheck, requireAdmin],
+        preValidation: requireAdmin,
         handler: async (req, res) => {
             const { memberId } = req.body
             const requestId = await Settings.updateCardStatus(
                 memberId,
-                MemberCardStatus.Approved
+                CardStatus.Approved
             )
             const member = app.discord.guild.members.cache.get(memberId)
             if (requestId && member) {
@@ -321,7 +321,7 @@ export default async (app: FastifyInstance) => {
     app.route({
         method: 'GET',
         url: '/guildEmojis',
-        onRequest: [authCheck, requireAdmin],
+        preValidation: requireAdmin,
         handler: async (req, res) => {
             const emojis = app.discord.guild.emojis.cache.toJSON().map((e) => {
                 return {

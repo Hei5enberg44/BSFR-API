@@ -8,16 +8,13 @@ import {
 } from 'canvas'
 import sharp from 'sharp'
 import * as fs from 'node:fs'
-import { Roles } from './roles.js'
-import {
-    Leaderboards,
-    PlayerData,
-    PlayerRanking,
-    PlayerProgress
-} from './bsleaderboard.js'
-import { Op } from 'sequelize'
-import { CS_CardModel } from '../models/cubestalker.model.js'
-import config from '../config.json' assert { type: 'json' }
+import { GameLeaderboard, Leaderboards } from './gameLeaderboard.js'
+import players from './players.js'
+import roles from './roles.js'
+import { CardModel, CardStatus } from '../models/cubestalker/card.model.js'
+import { PlayerData, PlayerProgress } from '../interfaces/player.interface.js'
+import { Op } from '@sequelize/core'
+import config from '../../config.json' with { type: 'json' }
 
 registerFont('./assets/fonts/Poppins-Regular.ttf', {
     family: 'Poppins-Regular'
@@ -27,14 +24,15 @@ registerFont('./assets/fonts/Poppins-SemiBold.ttf', {
     family: 'Poppins-SemiBold'
 })
 
-type MapDifficulty = 'Easy' | 'Normal' | 'Hard' | 'Expert' | 'ExpertPlus'
+registerFont('./assets/fonts/Poppins-Regular.ttf', {
+    family: 'Poppins-Regular'
+})
+registerFont('./assets/fonts/Poppins-Medium.ttf', { family: 'Poppins-Medium' })
+registerFont('./assets/fonts/Poppins-SemiBold.ttf', {
+    family: 'Poppins-SemiBold'
+})
 
-export enum MemberCardStatus {
-    Preview = 0,
-    Pending = 1,
-    Approved = 2,
-    Denied = 3
-}
+type difficulties = 'easy' | 'normal' | 'hard' | 'expert' | 'expertplus'
 
 export class CubeStalker {
     public static async getMemberCard(member: GuildMember) {
@@ -42,16 +40,16 @@ export class CubeStalker {
             member.premiumSince === null &&
             !member.roles.cache.find(
                 (mr) =>
-                    mr.id === config.discord.roles['Admin'] ||
-                    mr.id === config.discord.roles['Modérateur']
+                    mr.id === config.discord.guild.roles['Admin'] ||
+                    mr.id === config.discord.guild.roles['Modérateur']
             )
         )
             return null
-        const card = await CS_CardModel.findOne({
+        const card = await CardModel.findOne({
             attributes: ['memberId', 'image', 'status'],
             where: {
                 memberId: member.id,
-                status: { [Op.ne]: MemberCardStatus.Preview }
+                status: { [Op.ne]: CardStatus.Preview }
             },
             raw: true
         })
@@ -61,13 +59,13 @@ export class CubeStalker {
     public static async setMemberCard(
         memberId: string,
         image: Buffer,
-        status: MemberCardStatus
+        status: CardStatus
     ) {
-        const card = await CS_CardModel.findOne({
+        const card = await CardModel.findOne({
             where: { memberId: memberId }
         })
         if (!card) {
-            await CS_CardModel.create({
+            await CardModel.create({
                 memberId,
                 image,
                 status
@@ -81,9 +79,9 @@ export class CubeStalker {
 
     public static async updateMemberCardStatus(
         memberId: string,
-        status: MemberCardStatus
+        status: CardStatus
     ) {
-        const card = await CS_CardModel.findOne({
+        const card = await CardModel.findOne({
             where: { memberId: memberId }
         })
         if (card) {
@@ -92,17 +90,17 @@ export class CubeStalker {
         }
     }
 
-    private static getDiffColor(diff: MapDifficulty) {
+    private static getDiffColor(diff: difficulties) {
         switch (diff) {
-            case 'Easy':
+            case 'easy':
                 return '#3CB371'
-            case 'Normal':
+            case 'normal':
                 return '#59B0F4'
-            case 'Hard':
+            case 'hard':
                 return '#FF6347'
-            case 'Expert':
+            case 'expert':
                 return '#BF2A42'
-            case 'ExpertPlus':
+            case 'expertplus':
                 return '#8F48DB'
         }
     }
@@ -191,10 +189,9 @@ export class CubeStalker {
     }
 
     public static async getCard(
-        leaderboardChoice: Leaderboards,
+        leaderboardName: Leaderboards,
         member: GuildMember,
         playerData: PlayerData,
-        playerLd: PlayerRanking,
         playerProgress: PlayerProgress | null,
         memberCardImage: Buffer | null = null,
         debug = false
@@ -205,36 +202,54 @@ export class CubeStalker {
         ctx.textBaseline = 'middle'
 
         // Fond
-        const memberCard = await this.getMemberCard(member)
-        memberCardImage = memberCardImage ?? memberCard?.image ?? null
+        let profileCover: Buffer | null = null
+        let memberCard = member ? await this.getMemberCard(member) : null
         if (memberCardImage) {
-            try {
-                const background = await loadImage(memberCardImage)
+            profileCover = memberCardImage
+        } else if (memberCard) {
+            profileCover = memberCard.image
+        }
+        if (profileCover) {
+            const background = await loadImage(profileCover)
 
-                ctx.save()
-                this.roundedImage(ctx, 0, 0, canvas.width, canvas.height, 20)
-                ctx.clip()
-                this.drawImageScaled(background, ctx)
-                ctx.restore()
+            ctx.save()
+            this.roundedImage(ctx, 0, 0, canvas.width, canvas.height, 20)
+            ctx.clip()
+            this.drawImageScaled(background, ctx)
+            ctx.restore()
 
-                ctx.save()
-                this.roundedImage(ctx, 0, 0, canvas.width, canvas.height, 20)
-                ctx.clip()
-                ctx.globalAlpha = 0.3
-                ctx.fillStyle = 'black'
-                ctx.fillRect(0, 0, canvas.width, canvas.height)
-                ctx.restore()
-            } catch (error) {
-                throw new Error("Format d'image non supporté")
-            }
+            ctx.save()
+            this.roundedImage(ctx, 0, 0, canvas.width, canvas.height, 20)
+            ctx.clip()
+            ctx.globalAlpha = 0.3
+            ctx.fillStyle = 'black'
+            ctx.fillRect(0, 0, canvas.width, canvas.height)
+            ctx.restore()
         } else {
-            const memberPpRoleColor = await Roles.getMemberPpRoleColor(member)
-            const colorStart = memberPpRoleColor
-                ? this.lightenDarkenColor(memberPpRoleColor, -80)
-                : '#231b60'
-            const colorStop = memberPpRoleColor
-                ? this.lightenDarkenColor(memberPpRoleColor, 0)
-                : '#d50078'
+            let colorStart = '#231b60'
+            let colorStop = '#d50078'
+
+            if (member) {
+                if (leaderboardName !== Leaderboards.AccSaber) {
+                    const memberPpRoleColor = roles.getMemberPpRoleColor(
+                        leaderboardName,
+                        member
+                    )
+                    if (memberPpRoleColor) {
+                        colorStart = this.lightenDarkenColor(
+                            memberPpRoleColor,
+                            -80
+                        )
+                        colorStop = this.lightenDarkenColor(
+                            memberPpRoleColor,
+                            0
+                        )
+                    }
+                } else {
+                    colorStart = '#0a8fed'
+                    colorStop = '#0a8fed'
+                }
+            }
 
             const gradient = ctx.createLinearGradient(
                 0,
@@ -252,12 +267,8 @@ export class CubeStalker {
         }
 
         // Avatar
-        const avatar = await loadImage(
-            playerData.avatar !== ''
-                ? playerData.avatar
-                : './assets/images/card/bsfr.png'
-        )
         ctx.save()
+        const avatar = await loadImage(playerData.avatar)
         this.roundedImage(ctx, 50, 50, 280, 280, 20)
         ctx.clip()
         ctx.drawImage(avatar, 50, 50, 280, 280)
@@ -268,8 +279,10 @@ export class CubeStalker {
         ctx.fillStyle = '#FFFFFF'
         ctx.fillText(playerData.name, 365, 78, 930)
 
-        // Nombre de PP
-        const pp = `${Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(playerData.pp)}pp`
+        // Nombre de Points
+        const pp = `${Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(playerData.points)}${leaderboardName !== Leaderboards.AccSaber ? 'pp' : 'ap'}`
+        ctx.font = '76px "Poppins-SemiBold"'
+        ctx.fillStyle = '#FFFFFF'
         ctx.fillText(pp, canvas.width - ctx.measureText(pp).width - 40, 78)
 
         /**
@@ -277,21 +290,14 @@ export class CubeStalker {
          */
         // Icon Leaderboard
         const ldIcon = await loadImage(
-            `./assets/images/card/${leaderboardChoice === Leaderboards.ScoreSaber ? 'ss' : leaderboardChoice === 'beatleader' ? 'bl' : ''}.png`
+            `./assets/images/card/${GameLeaderboard.getLdIconName(leaderboardName)}.png`
         )
         ctx.drawImage(ldIcon, 365, 135, 60, 60)
 
         // Nom Leaderboard
         ctx.font = '50px "Poppins-Medium"'
-        ctx.fillText(
-            leaderboardChoice === Leaderboards.ScoreSaber
-                ? 'ScoreSaber'
-                : leaderboardChoice === 'beatleader'
-                  ? 'BeatLeader'
-                  : '',
-            435,
-            165
-        )
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillText(leaderboardName, 435, 165)
 
         // Globe
         const earth = await loadImage('./assets/images/card/earth.png')
@@ -299,20 +305,27 @@ export class CubeStalker {
 
         // Classement mondial du joueur
         const globalRank = `#${playerData.rank}`
+        ctx.font = '50px "Poppins-Regular"'
+        ctx.fillStyle = '#FFFFFF'
         ctx.fillText(globalRank, 435, 235)
 
-        // Drapeau Pays Joueur
-        const playerCountryFlagLeft =
-            435 + ctx.measureText(globalRank).width + 30
-        const flagPath = `./assets/images/card/flags/${playerData.country.toUpperCase()}.png`
-        if (fs.existsSync(flagPath)) {
-            const flag = await loadImage(flagPath)
-            ctx.drawImage(flag, playerCountryFlagLeft, 205, 60, 60)
-        }
+        let countryRank = ''
+        if (playerData.country && playerData.countryRank) {
+            // Drapeau Pays Joueur
+            const playerCountryFlagLeft =
+                435 + ctx.measureText(globalRank).width + 30
+            const flagPath = `./assets/images/card/flags/${playerData.country.toUpperCase()}.png`
+            if (fs.existsSync(flagPath)) {
+                const flag = await loadImage(flagPath)
+                ctx.drawImage(flag, playerCountryFlagLeft, 205, 60, 60)
+            }
 
-        // Classement du joueur dans son pays
-        const countryRank = `#${playerData.countryRank}`
-        ctx.fillText(countryRank, playerCountryFlagLeft + 70, 235)
+            // Classement du joueur dans son pays
+            countryRank = `#${playerData.countryRank}`
+            ctx.font = '50px "Poppins-Regular"'
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillText(countryRank, playerCountryFlagLeft + 70, 235)
+        }
 
         // Icon Précision
         const dart = await loadImage('./assets/images/card/dart.png')
@@ -320,6 +333,8 @@ export class CubeStalker {
 
         // Précision
         const acc = `${playerData.averageRankedAccuracy.toFixed(2)}%`
+        ctx.font = '50px "Poppins-Regular"'
+        ctx.fillStyle = '#FFFFFF'
         ctx.fillText(acc, 435, 305)
 
         // Séparateur
@@ -343,19 +358,28 @@ export class CubeStalker {
         ctx.drawImage(bsfrIcon, separatorLeft + 30, 135, 60, 60)
 
         // BSFR
+        ctx.font = '50px "Poppins-Medium"'
+        ctx.fillStyle = '#FFFFFF'
         ctx.fillText('BSFR', separatorLeft + 100, 165)
 
         // Classement pp serveur
+        const playerServerRanking = await players.getPlayerServerRanking(
+            leaderboardName,
+            playerData.id
+        )
         ctx.font = '45px "Poppins-Regular"'
+        ctx.fillStyle = '#FFFFFF'
         ctx.fillText(
-            `PP: ${playerLd.serverRankPP}/${playerLd.serverLdTotal}`,
+            `Points: ${playerServerRanking.serverRankPoints}/${playerServerRanking.serverLdTotal}`,
             separatorLeft + 30,
             235
         )
 
         // Classement précision serveur
+        ctx.font = '45px "Poppins-Regular"'
+        ctx.fillStyle = '#FFFFFF'
         ctx.fillText(
-            `Précision: ${playerLd.serverRankAcc}/${playerLd.serverLdTotal}`,
+            `Précision: ${playerServerRanking.serverRankAcc}/${playerServerRanking.serverLdTotal}`,
             separatorLeft + 30,
             305
         )
@@ -363,11 +387,16 @@ export class CubeStalker {
         /**
          * Bar de progression
          */
-        const fromPp = Math.floor(playerData.pp / 1000) * 1000
-        const toPp = fromPp + 1000
-        const fromPpText = `${Intl.NumberFormat('en-US').format(fromPp)}pp`
-        const toPpText = `${Intl.NumberFormat('en-US').format(toPp)}pp`
-        const progress = Math.ceil(((playerData.pp - fromPp) * 100) / 1000)
+        const fromPoints = Math.floor(playerData.points / 1000) * 1000
+        const toPoints = fromPoints + 1000
+        const fromPointsText = `${Intl.NumberFormat('en-US').format(fromPoints)}${leaderboardName !== Leaderboards.AccSaber ? 'pp' : 'ap'}`
+        const toPointsText = `${Intl.NumberFormat('en-US').format(toPoints)}${leaderboardName !== Leaderboards.AccSaber ? 'pp' : 'ap'}`
+        const progress = Math.ceil(
+            ((playerData.points - fromPoints) * 100) / 1000
+        )
+
+        ctx.lineWidth = 4
+        ctx.strokeStyle = 'white'
 
         ctx.beginPath()
         ctx.moveTo(60, 370)
@@ -391,10 +420,10 @@ export class CubeStalker {
         ctx.restore()
 
         if (playerProgress) {
-            const ppDiff = playerProgress.ppDiff
+            const pointsDiff = playerProgress.pointsDiff
 
-            if (ppDiff !== 0) {
-                const progress = Math.ceil((ppDiff * 100) / 1000)
+            if (pointsDiff !== 0) {
+                const progress = Math.ceil((pointsDiff * 100) / 1000)
                 const progressDiffWidth = Math.ceil((1796 * progress) / 100)
 
                 ctx.save()
@@ -412,12 +441,14 @@ export class CubeStalker {
         }
 
         ctx.font = '50px "Poppins-Regular"'
-        ctx.fillText(fromPpText, 65, 405)
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillText(fromPointsText, 65, 405)
 
         ctx.font = '50px "Poppins-Regular"'
+        ctx.fillStyle = '#FFFFFF'
         ctx.fillText(
-            toPpText,
-            canvas.width - ctx.measureText(toPpText).width - 65,
+            toPointsText,
+            canvas.width - ctx.measureText(toPointsText).width - 65,
             405
         )
 
@@ -428,14 +459,18 @@ export class CubeStalker {
         ctx.fillText('T', 52, 495)
         ctx.fillText('O', 48, 540)
         ctx.fillText('P', 52, 585)
-        ctx.fillText('P', 52, 650)
+        ctx.fillText(
+            leaderboardName !== Leaderboards.AccSaber ? 'P' : 'A',
+            52,
+            650
+        )
         ctx.fillText('P', 52, 695)
 
         // Image Top PP
         ctx.save()
         const songCover = await loadImage(
-            playerData.topPP
-                ? playerData.topPP.cover
+            playerData.topScore
+                ? playerData.topScore.cover
                 : './assets/images/card/cover-default.png'
         )
         this.roundedImage(ctx, 100, 480, 230, 230, 10)
@@ -444,8 +479,8 @@ export class CubeStalker {
         ctx.restore()
 
         // Difficulté Top PP
-        if (playerData.topPP) {
-            const mapStars = playerData.topPP.stars.toFixed(2)
+        if (playerData.topScore) {
+            const mapStars = playerData.topScore.rating.toFixed(2)
             const top = 470
             const left = 190
             const radius = 5
@@ -459,7 +494,7 @@ export class CubeStalker {
             ctx.arcTo(left, top, left + width, top, radius)
             ctx.closePath()
             ctx.fillStyle = this.getDiffColor(
-                playerData.topPP.difficulty as MapDifficulty
+                playerData.topScore.difficulty.toLowerCase() as difficulties
             )
             ctx.fill()
             ctx.font = '40px "Poppins-Medium"'
@@ -480,22 +515,33 @@ export class CubeStalker {
 
         // Détails Top PP
         ctx.font = '50px "Poppins-Regular"'
-        if (playerData.topPP) {
+        ctx.fillStyle = '#FFFFFF'
+        if (playerData.topScore) {
             ctx.fillText(
-                this.fittingString(ctx, playerData.topPP.name, 1850),
+                this.fittingString(ctx, playerData.topScore.name, 1850),
                 365,
                 530,
                 1485
             )
-            ctx.fillText(`Mapped by ${playerData.topPP.author}`, 365, 595, 1485)
             ctx.fillText(
-                `#${playerData.topPP.rank} | ${playerData.topPP.pp.toFixed(2)}pp | ${playerData.topPP.acc.toFixed(2)}% | ${playerData.topPP.fc ? 'FC ✅' : 'FC ❎'}`,
+                `Mapped by ${playerData.topScore.author}`,
+                365,
+                595,
+                1485
+            )
+            ctx.fillText(
+                `#${playerData.topScore.rank} | ${playerData.topScore.points.toFixed(2)}${leaderboardName !== Leaderboards.AccSaber ? 'pp' : 'ap'} | ${playerData.topScore.acc.toFixed(2)}%${leaderboardName !== Leaderboards.AccSaber ? ` | ${playerData.topScore.fc ? 'FC ✅' : 'FC ❎'}` : ''}`,
                 365,
                 665,
                 1485
             )
         } else {
-            ctx.fillText(`Tu n'as pas de top PP pour le moment`, 365, 595, 1485)
+            ctx.fillText(
+                `Tu n'as pas de top ${leaderboardName !== Leaderboards.AccSaber ? 'PP' : 'AP'} pour le moment`,
+                365,
+                595,
+                1485
+            )
         }
 
         // Grille (pour tests)
@@ -580,7 +626,7 @@ export class CubeStalker {
                 })
             },
             preview: card.toString('base64'),
-            status: memberCard?.status ?? MemberCardStatus.Preview
+            status: memberCard?.status ?? CardStatus.Preview
         }
     }
 }

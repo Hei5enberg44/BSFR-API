@@ -5,17 +5,9 @@ import {
     RESTPostOAuth2AccessTokenResult,
     Routes
 } from 'discord-api-types/v10'
-
+import { AppError } from '../utils/error.js'
 import Logger from '../utils/logger.js'
-import config from '../config.json' assert { type: 'json' }
-
-export class DiscordClientError extends Error {
-    constructor(message: string) {
-        super(message)
-        this.name = 'DiscordClientError'
-        Error.captureStackTrace(this, this.constructor)
-    }
-}
+import config from '../../config.json' with { type: 'json' }
 
 export interface UserData {
     id: string
@@ -24,6 +16,7 @@ export interface UserData {
     avatarURL: string
     isAdmin: boolean
     isBSFR: boolean
+    isTeamYT: boolean
     isNitroBooster: boolean
 }
 
@@ -90,6 +83,12 @@ export class DiscordClient {
         } catch (error) {
             if (error instanceof DiscordAPIError) {
                 Logger.log('Discord', 'ERROR', `${error.message}`)
+                throw new AppError(
+                    error.status,
+                    'ERR_DISCORD',
+                    error.name,
+                    error.message
+                )
             } else if (error instanceof RateLimitError) {
                 Logger.log(
                     'Discord',
@@ -111,7 +110,12 @@ export class DiscordClient {
                     )
                 }
             }
-            throw new DiscordClientError('Récupération du token impossible')
+            throw new AppError(
+                500,
+                'ERR_DISCORD',
+                'Request Failed',
+                error.message
+            )
         }
     }
 
@@ -130,9 +134,12 @@ export class DiscordClient {
         } catch (error) {
             if (error instanceof DiscordAPIError) {
                 Logger.log('Discord', 'ERROR', `${error.message}`)
-                if (error.status === 401) {
-                    throw new DiscordClientError(error.message)
-                }
+                throw new AppError(
+                    error.status,
+                    'ERR_DISCORD',
+                    error.name,
+                    error.message
+                )
             } else if (error instanceof RateLimitError) {
                 Logger.log(
                     'Discord',
@@ -154,8 +161,11 @@ export class DiscordClient {
                     )
                 }
             }
-            throw new DiscordClientError(
-                "Récupération de l'utilisateur impossible"
+            throw new AppError(
+                500,
+                'ERR_DISCORD',
+                'Request Failed',
+                error.message
             )
         }
     }
@@ -175,6 +185,7 @@ export class DiscordClient {
             avatarURL: user.displayAvatarURL({ extension: 'webp', size: 128 }),
             isAdmin: false,
             isBSFR: false,
+            isTeamYT: false,
             isNitroBooster: false
         }
 
@@ -190,11 +201,19 @@ export class DiscordClient {
             if (
                 member.roles.cache.find(
                     (r) =>
-                        r.id === config.discord.roles['Admin'] ||
-                        r.id === config.discord.roles['Modérateur']
+                        r.id === config.discord.guild.roles['Admin'] ||
+                        r.id === config.discord.guild.roles['Modérateur']
                 )
             )
                 userData.isAdmin = true
+            // On vérifie si le membre a le rôle "TeamYT"
+            if (
+                userData.isAdmin ||
+                member.roles.cache.find(
+                    (r) => r.id === config.discord.guild.roles['TeamYT']
+                )
+            )
+                userData.isTeamYT = true
             // On vérifie si le membre boost le serveur
             if (member.premiumSince) userData.isNitroBooster = true
         }

@@ -10,11 +10,13 @@ export default async (app: FastifyInstance) => {
     app.route({
         method: 'GET',
         url: '/',
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             const userData = req.userData
             const current = await Rankedle.getCurrentRankedle()
-            const stats = await Rankedle.getDailyStats(app.discord.guild)
+            const stats = current
+                ? await Rankedle.getDailyStats(app.discord.guild)
+                : null
             const playerScore = current
                 ? await Rankedle.getPlayerScore(userData.id)
                 : null
@@ -33,7 +35,7 @@ export default async (app: FastifyInstance) => {
     app.route({
         method: 'POST',
         url: '/skip',
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             const userData = req.userData
             await Rankedle.skip(app.discord.guild, userData.id)
@@ -49,7 +51,7 @@ export default async (app: FastifyInstance) => {
                 mapId: z.number()
             })
         },
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             const { mapId } = req.body
             const userData = req.userData
@@ -61,7 +63,7 @@ export default async (app: FastifyInstance) => {
     app.withTypeProvider<ZodTypeProvider>().route({
         method: 'POST',
         url: '/hint',
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             const userData = req.userData
             const cover = await Rankedle.hintRedeem(userData.id)
@@ -72,7 +74,7 @@ export default async (app: FastifyInstance) => {
     app.route({
         method: 'GET',
         url: '/share',
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             const userData = req.userData
             const score = await Rankedle.shareScore(userData.id)
@@ -91,7 +93,7 @@ export default async (app: FastifyInstance) => {
                 gap: z.coerce.number().optional()
             })
         },
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             const { type, barCount, barWidth, gap } = req.query
             const wf = Rankedle.getSongWaveform(type, barCount, barWidth, gap)
@@ -103,7 +105,7 @@ export default async (app: FastifyInstance) => {
     app.route({
         method: 'GET',
         url: '/song/play',
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             const userData = req.userData
             const { head, file } = await Rankedle.play(userData.id)
@@ -120,7 +122,7 @@ export default async (app: FastifyInstance) => {
                 query: z.string()
             })
         },
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             const userData = req.userData
             const { query } = req.query
@@ -135,7 +137,7 @@ export default async (app: FastifyInstance) => {
     app.route({
         method: 'GET',
         url: '/ranking',
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             const ranking = await Rankedle.getRanking(app.discord.guild)
             res.send(ranking)
@@ -145,7 +147,7 @@ export default async (app: FastifyInstance) => {
     app.route({
         method: 'GET',
         url: '/stats',
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             const userData = req.userData
             const stats = await Rankedle.getUserStats(userData.id)
@@ -162,7 +164,7 @@ export default async (app: FastifyInstance) => {
                 rows: z.coerce.number()
             })
         },
-        onRequest: authCheck,
+        preValidation: authCheck,
         handler: async (req, res) => {
             const { first, rows } = req.query
             const userData = req.userData
